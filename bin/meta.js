@@ -13,6 +13,7 @@ const queryCommands = require('../commands/query');
 const appCommands = require('../commands/app');
 const limitsCommands = require('../commands/limits');
 const postCommands = require('../commands/post');
+const whatsappCommands = require('../commands/whatsapp');
 
 function showBanner() {
   const style = (process.env.META_CLI_BANNER_STYLE || 'slant').toLowerCase();
@@ -43,6 +44,7 @@ queryCommands(program);
 appCommands(program);
 limitsCommands(program);
 postCommands(program);
+whatsappCommands(program);
 
 // Custom help
 program.on('--help', () => {
@@ -53,6 +55,7 @@ program.on('--help', () => {
   console.log('  $ meta app info                ' + chalk.gray('# View app configuration'));
   console.log('  $ meta limits check            ' + chalk.gray('# Check rate limits'));
   console.log('  $ meta post create --message "Hello" --page PAGE_ID  ' + chalk.gray('# Create a Page post'));
+  console.log('  $ meta whatsapp send --phone-number-id ID --to +15551234567 --message "Hello"  ' + chalk.gray('# Send a WhatsApp message'));
   console.log('');
   console.log(chalk.cyan('Documentation: https://github.com/vishalgojha/meta-cli'));
 });

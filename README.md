@@ -258,7 +258,19 @@ fi
 |-----|--------|-------------------|
 | Facebook Graph API | ✅ Full | auth, query, app, limits |
 | Instagram Graph API | ✅ Full | auth, query, app, limits |
-| WhatsApp Business API | 🚧 Partial | auth, query, limits |
+| WhatsApp Business API | 🚧 Partial | auth, whatsapp, query, limits |
+
+### WhatsApp (`meta whatsapp`)
+
+WhatsApp Cloud API helpers.
+
+```bash
+# Send a text message
+meta whatsapp send --phone-number-id PHONE_NUMBER_ID --to +15551234567 --message "Hello!"
+
+# Fetch WABA info
+meta whatsapp business --business-id WABA_ID
+```
 
 ## Troubleshooting
 
