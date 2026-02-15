@@ -150,6 +150,28 @@ meta limits check
 meta limits docs
 ```
 
+### Posting (`meta post`)
+
+Create posts on Facebook Pages (requires a Page access token; this CLI fetches it from `/me/accounts` using your stored Facebook token).
+
+```bash
+# Set a default Page ID (optional)
+meta post set-default PAGE_ID
+
+# Create a text post (uses default Page if set; otherwise prompts)
+meta post create --message "Hello from meta-cli"
+
+# Create a link post
+meta post create --message "New blog post" --link "https://example.com"
+
+# Schedule a post (ISO or unix seconds)
+meta post create --message "Scheduled post" --schedule "2026-03-01T10:00:00"
+meta post create --message "Scheduled post" --schedule 1772368800
+
+# Create an unpublished draft
+meta post create --message "Draft post" --draft
+```
+
 ## Configuration
 
 Configuration is stored at:

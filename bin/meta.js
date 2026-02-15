@@ -12,6 +12,7 @@ const authCommands = require('../commands/auth');
 const queryCommands = require('../commands/query');
 const appCommands = require('../commands/app');
 const limitsCommands = require('../commands/limits');
+const postCommands = require('../commands/post');
 
 function showBanner() {
   const style = (process.env.META_CLI_BANNER_STYLE || 'slant').toLowerCase();
@@ -41,6 +42,7 @@ authCommands(program);
 queryCommands(program);
 appCommands(program);
 limitsCommands(program);
+postCommands(program);
 
 // Custom help
 program.on('--help', () => {
@@ -50,6 +52,7 @@ program.on('--help', () => {
   console.log('  $ meta query me                ' + chalk.gray('# Get your profile info'));
   console.log('  $ meta app info                ' + chalk.gray('# View app configuration'));
   console.log('  $ meta limits check            ' + chalk.gray('# Check rate limits'));
+  console.log('  $ meta post create --message "Hello" --page PAGE_ID  ' + chalk.gray('# Create a Page post'));
   console.log('');
   console.log(chalk.cyan('Documentation: https://github.com/vishalgojha/meta-cli'));
 });
