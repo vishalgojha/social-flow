@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.8
+
+- Release: fix tag-based release notes generation by adding changelog entries for recent versions.
+- Docs: added maintainer release instructions (GitHub Actions + `NPM_TOKEN` secret).
+
+## 0.2.7
+
+- CI: keep `package-lock.json` in sync so `npm ci` works in GitHub Actions.
+- Release: added tag-based GitHub Actions workflow to publish to npm + create GitHub Releases.
+
+## 0.2.6
+
+- UX: improved banner readability and added `--banner-style`, `--color/--no-color`, `--no-banner` flags.
+
 ## 0.2.0
 
 - Added Marketing API support: `meta marketing` (ad accounts, campaigns, ad sets, creatives, async insights, status, create-campaign).

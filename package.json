@@ -1,6 +1,6 @@
 {
   "name": "@vishalgojha/meta-cli",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "A CLI for Meta's APIs. For devs tired of token gymnastics.",
   "main": "index.js",
   "bin": {
