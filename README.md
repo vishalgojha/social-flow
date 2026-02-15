@@ -155,6 +155,12 @@ meta limits docs
 Create posts on Facebook Pages (requires a Page access token; this CLI fetches it from `/me/accounts` using your stored Facebook token).
 
 ```bash
+# List available Pages
+meta post pages
+
+# Interactively pick and save default Page
+meta post pages --set-default
+
 # Set a default Page ID (optional)
 meta post set-default PAGE_ID
 
@@ -170,6 +176,9 @@ meta post create --message "Scheduled post" --schedule 1772368800
 
 # Create an unpublished draft
 meta post create --message "Draft post" --draft
+
+# Post a photo by URL
+meta post photo --url "https://example.com/image.jpg" --caption "Hello"
 ```
 
 ## Configuration
