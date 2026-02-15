@@ -58,29 +58,51 @@ function buildSnapshot() {
   };
 }
 
-function registerDoctorCommands(program) {
-  program
-    .command('doctor')
-    .description('Quick diagnostics (config + setup hints)')
+function runDoctor(options) {
+  const snapshot = buildSnapshot();
+
+  if (options.json) {
+    console.log(JSON.stringify(snapshot, null, 2));
+    return;
+  }
+
+  // Keep output consistent with existing commands.
+  config.display();
+
+  if (snapshot.hints.length) {
+    console.log(chalk.bold('Next Steps:'));
+    snapshot.hints.forEach((h) => console.log('  - ' + chalk.cyan(h)));
+    console.log('');
+  }
+}
+
+function addDoctorLikeCommand(command, { name, description }) {
+  return command
+    .command(name)
+    .description(description)
     .option('--json', 'Output as JSON')
-    .action((options) => {
-      const snapshot = buildSnapshot();
+    .action(runDoctor);
+}
 
-      if (options.json) {
-        console.log(JSON.stringify(snapshot, null, 2));
-        return;
-      }
+function registerDoctorCommands(program) {
+  addDoctorLikeCommand(program, {
+    name: 'doctor',
+    description: 'Quick diagnostics (config + setup hints)'
+  });
 
-      // Keep output consistent with existing commands.
-      config.display();
-
-      if (snapshot.hints.length) {
-        console.log(chalk.bold('Next Steps:'));
-        snapshot.hints.forEach((h) => console.log('  - ' + chalk.cyan(h)));
-        console.log('');
-      }
-    });
+  // Aliases for muscle memory / simplified UX.
+  addDoctorLikeCommand(program, {
+    name: 'status',
+    description: 'Alias for "doctor"'
+  });
+  addDoctorLikeCommand(program, {
+    name: 'config',
+    description: 'Alias for "doctor"'
+  });
+  addDoctorLikeCommand(program, {
+    name: 'diag',
+    description: 'Alias for "doctor"'
+  });
 }
 
 module.exports = registerDoctorCommands;
-
