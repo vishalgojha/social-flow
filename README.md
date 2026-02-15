@@ -24,13 +24,13 @@ Tired of clicking through 47 dialogs to get a token? Fed up with decoding crypti
 ## Installation
 
 ```bash
-npm install -g meta-cli
+npm install -g @vishalgojha/meta-cli
 ```
 
 Or run directly with npx:
 
 ```bash
-npx meta-cli
+npx @vishalgojha/meta-cli
 ```
 
 ## Quick Start

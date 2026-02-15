@@ -1,10 +1,10 @@
 {
-  "name": "meta-cli",
+  "name": "@vishalgojha/meta-cli",
   "version": "0.1.0",
   "description": "A CLI for Meta's APIs. For devs tired of token gymnastics.",
   "main": "index.js",
   "bin": {
-    "meta": "./bin/meta.js"
+    "meta": "bin/meta.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -19,15 +19,26 @@
   ],
   "author": "Chaos Craft Labs",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vishalgojha/meta-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vishalgojha/meta-cli/issues"
+  },
+  "homepage": "https://github.com/vishalgojha/meta-cli#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "commander": "^11.1.0",
     "axios": "^1.6.0",
     "chalk": "^4.1.2",
-    "inquirer": "^8.2.5",
+    "commander": "^11.1.0",
     "conf": "^10.2.0",
+    "dotenv": "^16.3.1",
+    "inquirer": "^8.2.5",
     "ora": "^5.4.1",
-    "table": "^6.8.1",
-    "dotenv": "^16.3.1"
+    "table": "^6.8.1"
   },
   "devDependencies": {
     "eslint": "^8.54.0"
