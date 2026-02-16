@@ -6,53 +6,75 @@
   <title>Social API Gateway Studio</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Sora:wght@600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=JetBrains+Mono:wght@400;500;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <div class="background-layer"></div>
+
   <main class="app-shell">
+    <header class="topbar">
+      <div class="topbar-logo">
+        <span class="logo-dot"></span>
+        SOCIAL API GATEWAY
+      </div>
+      <div class="topbar-sep"></div>
+      <div class="topbar-status">
+        <span class="mono">v0.2</span>
+        <span class="badge badge-ok">API LIVE</span>
+        <span id="topPendingBadge" class="badge badge-warn">0 PENDING</span>
+      </div>
+      <div class="topbar-kpis">
+        <div class="kpi"><span id="kpiMessages" class="kpi-val">0</span><span class="kpi-label">Messages</span></div>
+        <div class="kpi"><span id="kpiPending" class="kpi-val kpi-pend">0</span><span class="kpi-label">Pending</span></div>
+        <div class="kpi"><span id="kpiExecuted" class="kpi-val kpi-ok">0</span><span class="kpi-label">Executed</span></div>
+        <div class="kpi"><span id="kpiSessions" class="kpi-val kpi-info">0</span><span class="kpi-label">Sessions</span></div>
+      </div>
+      <button id="notifBtn" class="topbar-bell" aria-label="Notifications">
+        <span class="bell-dot"></span>
+      </button>
+    </header>
+
     <aside class="left-rail">
-      <div class="brand">
+      <section class="brand">
         <div class="logo-ring"></div>
         <div>
           <h1>SOCIAL API GATEWAY</h1>
-          <p>SaaS Control Plane</p>
+          <p>Localhost Control Plane</p>
           <p id="buildLabel" class="build-label">Build: loading...</p>
         </div>
-      </div>
-      <section class="panel kpi-panel">
-        <article class="kpi-item">
-          <p>Messages</p>
-          <h3 id="kpiMessages">0</h3>
-        </article>
-        <article class="kpi-item">
-          <p>Pending</p>
-          <h3 id="kpiPending">0</h3>
-        </article>
-        <article class="kpi-item">
-          <p>Executed</p>
-          <h3 id="kpiExecuted">0</h3>
-        </article>
       </section>
+
+      <section class="panel nav-panel">
+        <p class="section-label">Main</p>
+        <button class="side-nav-item active" data-view="chat">Chat Agent</button>
+        <button class="side-nav-item" data-view="data">Data Console</button>
+        <button class="side-nav-item" data-view="config">Config</button>
+        <button class="side-nav-item" data-view="help">Help</button>
+        <button class="side-nav-item" data-view="settings">Settings</button>
+      </section>
+
       <section class="panel">
-        <h2>Sessions</h2>
-        <button id="newSessionBtn" class="ghost-btn">New Session</button>
+        <div class="panel-head">
+          <p class="section-label">Sessions</p>
+          <button id="newSessionBtn" class="ghost-btn small">New</button>
+        </div>
         <ul id="sessionsList" class="sessions-list"></ul>
       </section>
+
       <section class="panel">
-        <h2>Quick Prompts</h2>
+        <p class="section-label">Quick Prompts</p>
         <div class="chips">
           <button class="chip" data-prompt="I need to launch our new product tomorrow on Facebook and Instagram">Launch Plan</button>
           <button class="chip" data-prompt="Check my ad performance for last 7 days">Ad Analytics</button>
           <button class="chip" data-prompt="Send WhatsApp message 'Order confirmed' to +15551234567">WhatsApp Send</button>
           <button class="chip" data-prompt="List my active campaigns for account act_123456789">Campaign Scan</button>
           <button class="chip" data-prompt="Check auth status for this profile">Auth Status</button>
-          <button class="chip" data-prompt="List webhook subscriptions for this app">Webhook Subscriptions</button>
         </div>
       </section>
+
       <section class="panel tiny">
-        <h2>Gateway</h2>
+        <p class="section-label">Gateway</p>
         <p id="healthStatus">Connecting...</p>
       </section>
     </aside>
@@ -60,27 +82,16 @@
     <section class="chat-stage">
       <header class="top-banner">
         <div>
-          <p class="tag">Conversational Agent</p>
-          <h2>Talk naturally. Execute safely.</h2>
+          <p id="viewTag" class="tag">Chat Agent</p>
+          <h2 id="viewTitle">Talk naturally. Execute safely.</h2>
         </div>
-        <div class="session-pill">
-          Session: <span id="sessionIdText">-</span>
-        </div>
+        <div class="session-pill">Session: <span id="sessionIdText">-</span></div>
       </header>
-
-      <nav class="view-tabs">
-        <button class="view-tab active" data-view="chat">Chat</button>
-        <button class="view-tab" data-view="data">Data Console</button>
-        <button class="view-tab" data-view="config">Config</button>
-        <button class="view-tab" data-view="help">Help</button>
-        <button class="view-tab" data-view="settings">Settings</button>
-      </nav>
 
       <section id="view-chat" class="view-panel active">
         <section id="messageList" class="message-list"></section>
-
         <footer class="composer">
-          <textarea id="messageInput" rows="2" placeholder="Type a message... e.g. 'I need to promote my new product tomorrow'"></textarea>
+          <textarea id="messageInput" rows="2" placeholder="Type a message..."></textarea>
           <div class="composer-actions">
             <button id="sendBtn" class="send-btn">Send</button>
           </div>
@@ -124,13 +135,13 @@
             <h3>Marketing</h3>
             <p>check my ad performance for last 7 days</p>
             <p>list my active campaigns</p>
-            <p>create campaign 'Summer Sale' ...</p>
+            <p>create campaign "Summer Sale" ...</p>
           </article>
           <article class="data-card">
             <h3>Conversation</h3>
             <p>Use <strong>yes</strong> to run pending actions.</p>
             <p>Use <strong>no</strong> to cancel and adjust.</p>
-            <p>Type naturally; the agent will ask follow-ups.</p>
+            <p>Ask naturally. The agent will follow up.</p>
           </article>
         </div>
       </section>

@@ -22,14 +22,19 @@ const els = {
   sessionIdText: document.getElementById('sessionIdText'),
   sessionsList: document.getElementById('sessionsList'),
   newSessionBtn: document.getElementById('newSessionBtn'),
+  notifBtn: document.getElementById('notifBtn'),
   healthStatus: document.getElementById('healthStatus'),
   buildLabel: document.getElementById('buildLabel'),
+  topPendingBadge: document.getElementById('topPendingBadge'),
   kpiMessages: document.getElementById('kpiMessages'),
   kpiPending: document.getElementById('kpiPending'),
   kpiExecuted: document.getElementById('kpiExecuted'),
+  kpiSessions: document.getElementById('kpiSessions'),
   messageTemplate: document.getElementById('messageTemplate'),
-  viewTabs: Array.from(document.querySelectorAll('.view-tab')),
+  sideNavItems: Array.from(document.querySelectorAll('.side-nav-item')),
   viewPanels: Array.from(document.querySelectorAll('.view-panel')),
+  viewTag: document.getElementById('viewTag'),
+  viewTitle: document.getElementById('viewTitle'),
   dataHistory: document.getElementById('dataHistory'),
   dataPending: document.getElementById('dataPending'),
   dataExecuted: document.getElementById('dataExecuted'),
@@ -60,7 +65,7 @@ function short(v, n = 96) {
 
 function loadSettings() {
   try {
-    const raw = localStorage.getItem('meta_gateway_ui_settings');
+    const raw = localStorage.getItem('social_gateway_ui_settings') || localStorage.getItem('meta_gateway_ui_settings');
     if (!raw) return;
     const parsed = JSON.parse(raw);
     state.settings = {
@@ -74,7 +79,7 @@ function loadSettings() {
 
 function persistSettings() {
   try {
-    localStorage.setItem('meta_gateway_ui_settings', JSON.stringify(state.settings));
+    localStorage.setItem('social_gateway_ui_settings', JSON.stringify(state.settings));
   } catch {
     // ignore
   }
@@ -142,6 +147,7 @@ function updateKpis(payload = {}) {
   if (els.kpiMessages) els.kpiMessages.textContent = String(historyCount);
   if (els.kpiPending) els.kpiPending.textContent = String(pendingCount);
   if (els.kpiExecuted) els.kpiExecuted.textContent = String(executedCount);
+  if (els.topPendingBadge) els.topPendingBadge.textContent = `${pendingCount} PENDING`;
 }
 
 function renderTable(target, columns, rows) {
@@ -210,7 +216,18 @@ async function refreshConfig() {
 
 function setActiveView(view) {
   state.activeView = view;
-  els.viewTabs.forEach((btn) => {
+  const titles = {
+    chat: { tag: 'Chat Agent', title: 'Talk naturally. Execute safely.' },
+    data: { tag: 'Data Console', title: 'Inspect live conversation and execution trails.' },
+    config: { tag: 'Config', title: 'Runtime profile, defaults, and token state.' },
+    help: { tag: 'Help', title: 'Prompt patterns for developer and marketing flows.' },
+    settings: { tag: 'Settings', title: 'Keyboard, auto-scroll, and compact display options.' }
+  };
+  const copy = titles[view] || titles.chat;
+  if (els.viewTag) els.viewTag.textContent = copy.tag;
+  if (els.viewTitle) els.viewTitle.textContent = copy.title;
+
+  els.sideNavItems.forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.view === view);
   });
   els.viewPanels.forEach((panel) => {
@@ -238,6 +255,7 @@ async function refreshSessions() {
   try {
     const res = await api('/api/sessions');
     const sessions = res.sessions || [];
+    if (els.kpiSessions) els.kpiSessions.textContent = String(sessions.length);
     els.sessionsList.innerHTML = '';
     if (!sessions.length) {
       const li = document.createElement('li');
@@ -268,7 +286,7 @@ async function checkHealth() {
       ? `Legacy build detected (${service})`
       : `Online (${version})`;
     if (els.buildLabel) {
-      els.buildLabel.textContent = `${service || 'unknown-service'} • v${version || '-'}`;
+      els.buildLabel.textContent = `${service || 'unknown-service'} | v${version || '-'}`;
     }
     if (isLegacy) {
       appendMessage('system', 'Legacy gateway service detected. Run `social gateway --open` from the latest social-cli install.');
@@ -363,11 +381,19 @@ function wireEvents() {
     });
   });
 
-  els.viewTabs.forEach((btn) => {
+  els.sideNavItems.forEach((btn) => {
     btn.addEventListener('click', () => {
       setActiveView(btn.dataset.view || 'chat');
     });
   });
+
+  if (els.notifBtn) {
+    els.notifBtn.addEventListener('click', () => {
+      const pending = Number((els.kpiPending && els.kpiPending.textContent) || '0') || 0;
+      appendMessage('system', `${pending} pending actions await confirmation.`);
+      setActiveView('chat');
+    });
+  }
 
   if (els.refreshConfigBtn) {
     els.refreshConfigBtn.addEventListener('click', refreshConfig);
