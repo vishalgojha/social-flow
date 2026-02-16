@@ -34,6 +34,15 @@ module.exports = [
     }
   },
   {
+    name: 'parser: heuristicParse detects whatsapp phone-number listing intent',
+    fn: () => {
+      const intent = heuristicParse('do i have any mobile number listed for business id 1234567890');
+      assert.equal(intent.action, 'query_whatsapp_phone_numbers');
+      assert.equal(intent.api, 'whatsapp');
+      assert.equal(intent.businessId, '1234567890');
+    }
+  },
+  {
     name: 'parser: parseDateTimeFromText parses relative time',
     fn: () => {
       const iso = parseDateTimeFromText('schedule tomorrow at 9am');
@@ -88,6 +97,19 @@ module.exports = [
       assert.equal(validation.valid, false);
       assert.equal(validation.errors.some((e) => e.includes('objective')), true);
       assert.equal(validation.errors.some((e) => e.includes('budget')), true);
+    }
+  },
+  {
+    name: 'validator: query_whatsapp_phone_numbers requires businessId',
+    fn: async () => {
+      const validation = await validateIntent({
+        action: 'query_whatsapp_phone_numbers',
+        api: 'whatsapp',
+        businessId: null,
+        confidence: 0.8
+      }, {});
+      assert.equal(validation.valid, false);
+      assert.equal(validation.errors.some((e) => e.includes('businessId')), true);
     }
   },
   {
@@ -146,6 +168,45 @@ module.exports = [
         assert.equal(result.data.messages[0].id, 'wamid.1');
       } finally {
         MetaAPIClient.prototype.sendWhatsAppMessage = oldSend;
+      }
+    }
+  },
+  {
+    name: 'executor: query_whatsapp_phone_numbers maps to listWhatsAppPhoneNumbers',
+    fn: async () => {
+      const oldList = MetaAPIClient.prototype.listWhatsAppPhoneNumbers;
+      try {
+        let called = false;
+        MetaAPIClient.prototype.listWhatsAppPhoneNumbers = async function patched(wabaId) {
+          called = true;
+          assert.equal(wabaId, '1234567890');
+          return {
+            data: [
+              {
+                id: '111',
+                display_phone_number: '+15551234567',
+                verified_name: 'Test',
+                quality_rating: 'GREEN',
+                name_status: 'APPROVED'
+              }
+            ]
+          };
+        };
+
+        const result = await executeIntent({
+          action: 'query_whatsapp_phone_numbers',
+          api: 'whatsapp',
+          businessId: '1234567890'
+        }, {
+          getToken: (api) => (api === 'whatsapp' ? 'fake-token' : '')
+        });
+
+        assert.equal(result.success, true);
+        assert.equal(called, true);
+        assert.equal(result.data.businessId, '1234567890');
+        assert.equal(result.data.data[0].display_phone_number, '+15551234567');
+      } finally {
+        MetaAPIClient.prototype.listWhatsAppPhoneNumbers = oldList;
       }
     }
   },

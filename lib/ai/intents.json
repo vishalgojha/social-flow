@@ -57,6 +57,16 @@
       "get my recent Instagram media"
     ]
   },
+  "query_whatsapp_phone_numbers": {
+    "required": ["businessId"],
+    "optional": ["api"],
+    "risk": "low",
+    "description": "List WhatsApp phone numbers for a WABA",
+    "examples": [
+      "do I have any mobile number listed for WABA 123456789",
+      "list WhatsApp phone numbers for business id 123456789"
+    ]
+  },
   "query_insights": {
     "required": [],
     "optional": ["preset", "accountId", "fields"],
