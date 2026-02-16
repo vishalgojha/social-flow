@@ -366,6 +366,7 @@ See `docs/AI_INTERFACE.md` for full architecture and troubleshooting.
 - Enforces specialist tool-scope boundaries before execution
 - Executes concrete `Ops` and `Connector` specialist actions (summary, morning-run, run-due, ack token alerts, approve low-risk, source list/sync)
 - Proposes actions and waits for explicit confirmation
+- Optional terminal autonomy with `--agentic` (auto-executes non-high-risk actions)
 - Executes through internal API clients (no shell/eval)
 - Saves and resumes sessions across CLI runs
 
@@ -374,6 +375,9 @@ See `docs/AI_INTERFACE.md` for full architecture and troubleshooting.
 ```bash
 # start a new conversation
 social chat
+
+# start in terminal autonomous mode (still asks for high-risk actions)
+social chat --agentic
 
 # resume a specific session
 social chat --session chat_20260215150000_ab12cd

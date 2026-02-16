@@ -78,6 +78,39 @@ module.exports = [
     }
   },
   {
+    name: 'chat agentic mode auto-executes non-high-risk actions',
+    fn: async () => {
+      const ctx = new ConversationContext();
+      const agent = new AutonomousAgent({
+        context: ctx,
+        config: { getDefaultApi: () => 'facebook' },
+        options: { agentic: true }
+      });
+      const res = await agent.process('check auth status for this profile');
+      assert.equal(res.actions.length, 1);
+      assert.equal(res.actions[0].tool, 'auth.status');
+      assert.equal(res.needsInput, false);
+      assert.equal(ctx.hasPendingActions(), false);
+    }
+  },
+  {
+    name: 'chat agentic mode still asks confirmation for high-risk actions',
+    fn: async () => {
+      const ws = `chat_agentic_high_${Date.now()}`;
+      const ctx = new ConversationContext();
+      const agent = new AutonomousAgent({
+        context: ctx,
+        config: { getDefaultApi: () => 'facebook', getActiveProfile: () => ws },
+        options: { agentic: true }
+      });
+      const res = await agent.process(`approve low-risk approvals for workspace ${ws}`);
+      assert.equal(res.actions.length, 1);
+      assert.equal(res.actions[0].tool, 'ops.approvals.approve_low_risk');
+      assert.equal(res.needsInput, true);
+      assert.equal(ctx.hasPendingActions(), true);
+    }
+  },
+  {
     name: 'chat agent handles small talk without actions',
     fn: async () => {
       const ctx = new ConversationContext();

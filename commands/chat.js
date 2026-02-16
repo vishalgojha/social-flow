@@ -21,10 +21,12 @@ function registerChatCommands(program) {
     .description('Start a conversational AI session for Meta APIs')
     .option('--session <id>', 'Resume a specific session id')
     .option('--yes', 'Auto-approve low-risk executions', false)
+    .option('--agentic', 'Autonomous terminal mode: auto-execute non-high-risk actions', false)
     .option('--debug', 'Show parser debug logs', false)
     .action(async (opts) => {
       const session = new ChatSession(opts.session, {
         yes: Boolean(opts.yes),
+        agentic: Boolean(opts.agentic),
         debug: Boolean(opts.debug)
       });
       await session.start();

@@ -10,6 +10,10 @@ function run(cmd) {
   return cp.execFileSync('git', cmd, { encoding: 'utf8' }).trim();
 }
 
+function isZeroSha(sha) {
+  return !sha || sha === ZERO_SHA;
+}
+
 function parseArgs(argv) {
   const out = {
     remote: '',
@@ -64,7 +68,12 @@ function mdList(title, rows) {
 }
 
 function commitsForRange(oldSha, newSha) {
-  if (!newSha || newSha === ZERO_SHA) return [];
+  if (isZeroSha(newSha)) return [];
+  if (isZeroSha(oldSha)) {
+    const single = safe(['log', '-1', '--no-merges', '--oneline', newSha]);
+    if (!single) return [];
+    return [single];
+  }
   if (oldSha && oldSha === newSha) {
     const single = safe(['log', '-1', '--no-merges', '--oneline', newSha]);
     if (!single) return [];
@@ -77,7 +86,11 @@ function commitsForRange(oldSha, newSha) {
 }
 
 function changedFilesForRange(oldSha, newSha) {
-  if (!newSha || newSha === ZERO_SHA) return [];
+  if (isZeroSha(newSha)) return [];
+  if (isZeroSha(oldSha)) {
+    const raw = safe(['show', '--name-only', '--pretty=format:', newSha]);
+    return raw ? raw.split(/\r?\n/).filter(Boolean) : [];
+  }
   if (oldSha && oldSha === newSha) {
     const rawSingle = safe(['show', '--name-only', '--pretty=format:', newSha]);
     return rawSingle ? rawSingle.split(/\r?\n/).filter(Boolean) : [];
@@ -150,19 +163,29 @@ function readHeadSha(repoRoot) {
 }
 
 function resolvePushDirection(update, headSha) {
+  if (isZeroSha(update.remoteSha) && !isZeroSha(update.localSha)) {
+    return {
+      fromSha: update.remoteSha,
+      toSha: update.localSha,
+      commits: [],
+      mode: 'new-branch'
+    };
+  }
   if (headSha) {
     if (update.localSha === headSha && update.remoteSha !== headSha) {
       return {
         fromSha: update.remoteSha,
         toSha: update.localSha,
-        commits: []
+        commits: [],
+        mode: 'forward'
       };
     }
     if (update.remoteSha === headSha && update.localSha !== headSha) {
       return {
         fromSha: update.localSha,
         toSha: update.remoteSha,
-        commits: []
+        commits: [],
+        mode: 'reverse'
       };
     }
   }
@@ -171,7 +194,8 @@ function resolvePushDirection(update, headSha) {
     return {
       fromSha: update.remoteSha,
       toSha: update.localSha,
-      commits: forwardCommits
+      commits: forwardCommits,
+      mode: 'forward'
     };
   }
   const reverseCommits = commitsForRange(update.localSha, update.remoteSha);
@@ -179,13 +203,15 @@ function resolvePushDirection(update, headSha) {
     return {
       fromSha: update.localSha,
       toSha: update.remoteSha,
-      commits: reverseCommits
+      commits: reverseCommits,
+      mode: 'reverse'
     };
   }
   return {
     fromSha: update.remoteSha,
     toSha: update.localSha,
-    commits: []
+    commits: [],
+    mode: 'unknown'
   };
 }
 
@@ -221,6 +247,9 @@ function main() {
 
   const remoteLabel = args.remote || 'unknown';
   const remoteUrl = args.url || safe(['remote', 'get-url', remoteLabel], '');
+  const pushRefLine = direction.mode === 'new-branch'
+    ? `${preferred.localRef} -> ${preferred.remoteRef} (new branch)`
+    : `${preferred.localRef} -> ${preferred.remoteRef}`;
 
   const body = [
     '# Codex Handoff',
@@ -229,7 +258,7 @@ function main() {
     `Repo: ${repoRoot}`,
     `Branch: ${branch}`,
     `Remote: ${remoteLabel}${remoteUrl ? ` (${remoteUrl})` : ''}`,
-    `Push Ref: ${preferred.localRef} -> ${preferred.remoteRef}`,
+    `Push Ref: ${pushRefLine}`,
     `Head: ${latestCommit || direction.toSha || preferred.localSha}`,
     '',
     mdList('Pushed Commits', pushedCommits),
