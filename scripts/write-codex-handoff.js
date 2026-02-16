@@ -90,6 +90,105 @@ function changedFilesForRange(oldSha, newSha) {
   return raw ? raw.split(/\r?\n/).filter(Boolean) : [];
 }
 
+function resolveGitDir(repoRoot) {
+  const dotGit = path.join(repoRoot, '.git');
+  if (fs.existsSync(dotGit) && fs.statSync(dotGit).isDirectory()) {
+    return dotGit;
+  }
+  if (fs.existsSync(dotGit) && fs.statSync(dotGit).isFile()) {
+    const raw = fs.readFileSync(dotGit, 'utf8');
+    const m = /^gitdir:\s*(.+)\s*$/im.exec(raw || '');
+    if (m && m[1]) {
+      const resolved = path.resolve(repoRoot, m[1].trim());
+      if (fs.existsSync(resolved)) return resolved;
+    }
+  }
+  return '';
+}
+
+function readPackedRef(gitDir, refName) {
+  try {
+    const packed = fs.readFileSync(path.join(gitDir, 'packed-refs'), 'utf8');
+    const lines = packed.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i].trim();
+      if (!line || line.startsWith('#') || line.startsWith('^')) continue;
+      const parts = line.split(/\s+/);
+      if (parts.length >= 2 && parts[1] === refName) return parts[0];
+    }
+  } catch {
+    // ignore
+  }
+  return '';
+}
+
+function readRefSha(gitDir, refName) {
+  try {
+    const refPath = path.join(gitDir, ...String(refName || '').split('/'));
+    if (fs.existsSync(refPath)) {
+      return fs.readFileSync(refPath, 'utf8').trim();
+    }
+  } catch {
+    // ignore
+  }
+  return readPackedRef(gitDir, refName);
+}
+
+function readHeadSha(repoRoot) {
+  const gitDir = resolveGitDir(repoRoot);
+  if (!gitDir) return '';
+  try {
+    const headRaw = fs.readFileSync(path.join(gitDir, 'HEAD'), 'utf8').trim();
+    const match = /^ref:\s*(.+)$/.exec(headRaw);
+    if (match && match[1]) {
+      return readRefSha(gitDir, match[1].trim());
+    }
+    return headRaw;
+  } catch {
+    return '';
+  }
+}
+
+function resolvePushDirection(update, headSha) {
+  if (headSha) {
+    if (update.localSha === headSha && update.remoteSha !== headSha) {
+      return {
+        fromSha: update.remoteSha,
+        toSha: update.localSha,
+        commits: []
+      };
+    }
+    if (update.remoteSha === headSha && update.localSha !== headSha) {
+      return {
+        fromSha: update.localSha,
+        toSha: update.remoteSha,
+        commits: []
+      };
+    }
+  }
+  const forwardCommits = commitsForRange(update.remoteSha, update.localSha);
+  if (forwardCommits.length) {
+    return {
+      fromSha: update.remoteSha,
+      toSha: update.localSha,
+      commits: forwardCommits
+    };
+  }
+  const reverseCommits = commitsForRange(update.localSha, update.remoteSha);
+  if (reverseCommits.length) {
+    return {
+      fromSha: update.localSha,
+      toSha: update.remoteSha,
+      commits: reverseCommits
+    };
+  }
+  return {
+    fromSha: update.remoteSha,
+    toSha: update.localSha,
+    commits: []
+  };
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const stdin = readStdin();
@@ -105,15 +204,17 @@ function main() {
   const branchFromRefMatch = /^refs\/heads\/(.+)$/.exec(preferred.localRef);
   const branchFromRef = branchFromRefMatch ? branchFromRefMatch[1] : '';
   const branch = activeBranch || branchFromRef || 'unknown';
-  const pushedCommitsRaw = commitsForRange(preferred.remoteSha, preferred.localSha);
-  const filesRaw = changedFilesForRange(preferred.remoteSha, preferred.localSha);
+  const headSha = readHeadSha(repoRoot);
+  const direction = resolvePushDirection(preferred, headSha);
+  const pushedCommitsRaw = direction.commits;
+  const filesRaw = changedFilesForRange(direction.fromSha, direction.toSha);
   const pushedCommits = pushedCommitsRaw.length
     ? pushedCommitsRaw
-    : [`${preferred.localSha} (details unavailable)`];
+    : [`${direction.toSha || preferred.localSha} (details unavailable)`];
   const files = filesRaw.length
     ? filesRaw
     : ['(unavailable: history lookup failed)'];
-  const latestCommit = safe(['show', '-s', '--oneline', '--no-patch', preferred.localSha], '');
+  const latestCommit = safe(['show', '-s', '--oneline', '--no-patch', direction.toSha], '');
   const generatedAt = new Date().toISOString();
 
   const remoteLabel = args.remote || 'unknown';
@@ -127,7 +228,7 @@ function main() {
     `Branch: ${branch}`,
     `Remote: ${remoteLabel}${remoteUrl ? ` (${remoteUrl})` : ''}`,
     `Push Ref: ${preferred.localRef} -> ${preferred.remoteRef}`,
-    `Head: ${latestCommit || preferred.localSha}`,
+    `Head: ${latestCommit || direction.toSha || preferred.localSha}`,
     '',
     mdList('Pushed Commits', pushedCommits),
     mdList('Files Changed In Push', files),
