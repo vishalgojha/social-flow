@@ -105,7 +105,7 @@ This includes API version, default IDs, and tokens. The CLI never prints full to
 - `utils`: config helpers, api version, limits
 - `doctor`: quick diagnostics (sanitized config + setup hints)
 - `agent`: safe planning + execution with scoped memory
-- `chat`: conversational multi-turn AI assistant with persistent sessions
+- `chat`: legacy alias to `hatch` (agentic terminal chat)
 - `tui`: agentic terminal dashboard (chat-style intent input + approvals + replay)
 - `gateway`: localhost web UI + API gateway for chat/agent workflows
 - `ops`: morning operations workflow, alerts, approvals, scheduler, roles, knowledge sources
@@ -139,6 +139,27 @@ Use the top input as chat:
 - `logs limit 10`
 - `replay <log-id>`
 - `/ai show my profile` (uses configured Ollama/OpenAI provider)
+
+You can run AI parsing with local Ollama models (no paid API key required) by setting provider/model in config or using TUI AI flags.
+
+Ollama quick setup:
+
+```bash
+ollama pull qwen2.5:7b
+social tui --ai-provider ollama --ai-model qwen2.5:7b --ai-base-url http://127.0.0.1:11434
+```
+
+Already have Ollama/model installed?
+
+```bash
+social tui --ai-provider ollama --ai-model <your_model_name>
+```
+
+If provider/model is already saved in config, just run:
+
+```bash
+social tui
+```
 
 Keyboard:
 - `Enter`: execute/confirm
@@ -323,7 +344,7 @@ social agent --provider openai --model gpt-4o-mini "list my pages"
 
 ### Local AI (Ollama, 16GB RAM friendly)
 
-If you do not want cloud API keys, use local Ollama:
+If you do not want cloud API keys, use local Ollama. This runs models locally and does not require a paid API subscription:
 
 ```bash
 ollama pull llama3.1:8b

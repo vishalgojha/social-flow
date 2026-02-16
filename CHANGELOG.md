@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0-alpha-launcher
+
+- Added OpenClaw-style interactive launcher when running `social` with no command.
+- Added `social onboard` guided wizard with doctor checks and auto-launch to Hatch UI.
+- Added `social hatch` alias for terminal agent chat (`social tui`).
+- Upgraded agentic TUI to chat-first layout with PLAN/ACTIONS_QUEUE/LIVE_LOGS/APPROVALS/RESULTS/ROLLBACK.
+- Added replay improvements: suggestions, `replay latest`, and dry-run preview before high-risk approval.
+- Improved WhatsApp auth login UX to avoid opening docs by default; now shows direct token-generation hint.
+- Updated CLI help examples to remove `$` prompt prefix and improve copy/paste usability.
+- Changed `social chat` to onboarding-first behavior and route it to Hatch UI (legacy alias).
+
 ## 0.2.8
 
 - Release: fix tag-based release notes generation by adding changelog entries for recent versions.
