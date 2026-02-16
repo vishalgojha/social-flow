@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const chalk = require('chalk');
+const config = require('../lib/config');
 
 function runSubprocess(command, args, env) {
   return new Promise((resolve, reject) => {
@@ -17,6 +18,10 @@ function runSubprocess(command, args, env) {
   });
 }
 
+function hasAnyToken() {
+  return config.hasToken('facebook') || config.hasToken('instagram') || config.hasToken('whatsapp');
+}
+
 function registerTuiCommand(program) {
   program
     .command('tui')
@@ -26,10 +31,12 @@ function registerTuiCommand(program) {
     .option('--ai-model <model>', 'AI model override')
     .option('--ai-base-url <url>', 'AI base URL override')
     .option('--ai-api-key <key>', 'AI API key override')
+    .option('--skip-onboard-check', 'Skip onboarding guard and open hatch directly', false)
     .action(async (opts) => {
       const rootDir = path.join(__dirname, '..');
       const distEntry = path.join(rootDir, 'tools', 'agentic-tui', 'dist', 'index.js');
       const srcEntry = path.join(rootDir, 'tools', 'agentic-tui', 'src', 'index.tsx');
+      const binPath = path.join(rootDir, 'bin', 'social.js');
 
       const env = {
         ...process.env,
@@ -40,6 +47,12 @@ function registerTuiCommand(program) {
       };
 
       try {
+        if (!opts.skipOnboardCheck && !hasAnyToken()) {
+          console.log(chalk.yellow('\nOnboarding required before Hatch UI. Starting onboarding...\n'));
+          await runSubprocess(process.execPath, [binPath, '--no-banner', 'onboard'], env);
+          return;
+        }
+
         if (fs.existsSync(distEntry)) {
           await runSubprocess(process.execPath, [distEntry], env);
           return;

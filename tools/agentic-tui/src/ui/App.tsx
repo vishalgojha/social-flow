@@ -25,6 +25,11 @@ interface ConfigSnapshot {
   tokenSet: boolean;
   graphVersion: string;
   scopes: string[];
+  tokenMap: {
+    facebook: boolean;
+    instagram: boolean;
+    whatsapp: boolean;
+  };
   defaultPageId?: string;
   defaultAdAccountId?: string;
 }
@@ -95,15 +100,26 @@ async function loadConfigSnapshot(): Promise<ConfigSnapshot> {
   const raw = await readFile(cfgPath, "utf8");
   const parsed = JSON.parse(raw) as {
     token?: string;
+    tokens?: {
+      facebook?: string;
+      instagram?: string;
+      whatsapp?: string;
+    };
     graphVersion?: string;
     scopes?: string[];
     defaultPageId?: string;
     defaultAdAccountId?: string;
   };
+  const tokenMap = {
+    facebook: !!parsed?.tokens?.facebook || !!parsed?.token,
+    instagram: !!parsed?.tokens?.instagram,
+    whatsapp: !!parsed?.tokens?.whatsapp
+  };
   return {
-    tokenSet: !!parsed.token,
+    tokenSet: tokenMap.facebook || tokenMap.instagram || tokenMap.whatsapp,
     graphVersion: parsed.graphVersion || "v20.0",
     scopes: Array.isArray(parsed.scopes) ? parsed.scopes.map((x) => String(x)) : [],
+    tokenMap,
     defaultPageId: parsed.defaultPageId,
     defaultAdAccountId: parsed.defaultAdAccountId
   };
@@ -629,9 +645,9 @@ function Dashboard(): JSX.Element {
 
   const config = configState.data;
   const platformStatus = {
-    instagram: !!config?.scopes.find((x) => x.includes("instagram")),
-    facebook: !!config?.tokenSet,
-    ads: !!config?.scopes.find((x) => x.includes("ads"))
+    instagram: !!config?.tokenMap.instagram || !!config?.scopes.find((x) => x.includes("instagram")),
+    facebook: !!config?.tokenMap.facebook || !!config?.tokenSet,
+    ads: !!config?.scopes.find((x) => x.includes("ads")) || !!config?.tokenMap.facebook
   };
   const connectedCount = [platformStatus.instagram, platformStatus.facebook, platformStatus.ads].filter(Boolean).length;
 
@@ -653,7 +669,12 @@ function Dashboard(): JSX.Element {
   const accountOptions = accountOptionsFromConfig(config || {
     tokenSet: false,
     graphVersion: "v20.0",
-    scopes: []
+    scopes: [],
+    tokenMap: {
+      facebook: false,
+      instagram: false,
+      whatsapp: false
+    }
   });
 
   return (
