@@ -399,8 +399,20 @@ Options:
 
 - `--host <host>` (default `127.0.0.1`)
 - `--port <port>` (default `1310`)
+- `--api-key <key>` (expect `x-gateway-key` on protected API routes)
+- `--require-api-key` (enforce key even for localhost requests)
+- `--cors-origins <csv>` (strict CORS allowlist)
+- `--rate-limit-max <n>` (default `180`)
+- `--rate-limit-window-ms <ms>` (default `60000`)
 - `--open` (launch browser)
 - `--debug` (chat/parser debug logs)
+
+Security defaults:
+
+- `GET /api/health` is public for liveness checks.
+- Other `/api/*` routes are protected by auth/rate-limit middleware.
+- Non-local requests are denied unless a gateway API key is configured.
+- CORS is strict: by default only localhost origins are allowed when bound to localhost.
 
 Gateway endpoints:
 

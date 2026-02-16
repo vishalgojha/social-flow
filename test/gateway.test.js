@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { createGatewayServer } = require('../lib/gateway/server');
 
-function requestJson({ port, method, pathName, body }) {
+function requestJson({ port, method, pathName, body, headers }) {
   return new Promise((resolve, reject) => {
     const req = http.request({
       hostname: '127.0.0.1',
@@ -13,7 +13,8 @@ function requestJson({ port, method, pathName, body }) {
       path: pathName,
       method,
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(headers || {})
       }
     }, (res) => {
       const chunks = [];
@@ -73,6 +74,128 @@ module.exports = [
         assert.equal(res.status, 200);
         assert.equal(Boolean(res.data.config), true);
         assert.equal(typeof res.data.config.tokens.facebook.configured, 'boolean');
+      } finally {
+        await server.stop();
+        process.env.META_CLI_HOME = oldHome;
+      }
+    }
+  },
+  {
+    name: 'gateway auth middleware enforces x-gateway-key when required',
+    fn: async () => {
+      const oldHome = process.env.META_CLI_HOME;
+      process.env.META_CLI_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-gw-test-'));
+      const server = createGatewayServer({
+        host: '127.0.0.1',
+        port: 0,
+        apiKey: 'test-secret',
+        requireApiKey: true
+      });
+      try {
+        await server.start();
+
+        const denied = await requestJson({
+          port: server.port,
+          method: 'GET',
+          pathName: '/api/config'
+        });
+        assert.equal(denied.status, 401);
+        assert.equal(denied.data.ok, false);
+
+        const allowed = await requestJson({
+          port: server.port,
+          method: 'GET',
+          pathName: '/api/config',
+          headers: { 'X-Gateway-Key': 'test-secret' }
+        });
+        assert.equal(allowed.status, 200);
+        assert.equal(Boolean(allowed.data.config), true);
+
+        const health = await requestJson({
+          port: server.port,
+          method: 'GET',
+          pathName: '/api/health'
+        });
+        assert.equal(health.status, 200);
+        assert.equal(health.data.ok, true);
+      } finally {
+        await server.stop();
+        process.env.META_CLI_HOME = oldHome;
+      }
+    }
+  },
+  {
+    name: 'gateway blocks disallowed CORS origins',
+    fn: async () => {
+      const oldHome = process.env.META_CLI_HOME;
+      process.env.META_CLI_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-gw-test-'));
+      const server = createGatewayServer({
+        host: '127.0.0.1',
+        port: 0,
+        corsOrigins: 'http://allowed.local'
+      });
+      try {
+        await server.start();
+
+        const blocked = await requestJson({
+          port: server.port,
+          method: 'GET',
+          pathName: '/api/config',
+          headers: { Origin: 'http://evil.local' }
+        });
+        assert.equal(blocked.status, 403);
+        assert.equal(blocked.data.ok, false);
+
+        const preflight = await requestJson({
+          port: server.port,
+          method: 'OPTIONS',
+          pathName: '/api/config',
+          headers: {
+            Origin: 'http://allowed.local',
+            'Access-Control-Request-Method': 'GET'
+          }
+        });
+        assert.equal(preflight.status, 204);
+      } finally {
+        await server.stop();
+        process.env.META_CLI_HOME = oldHome;
+      }
+    }
+  },
+  {
+    name: 'gateway rate limiter rejects excessive requests',
+    fn: async () => {
+      const oldHome = process.env.META_CLI_HOME;
+      process.env.META_CLI_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-gw-test-'));
+      const server = createGatewayServer({
+        host: '127.0.0.1',
+        port: 0,
+        rateLimitMax: 2,
+        rateLimitWindowMs: 60 * 1000
+      });
+      try {
+        await server.start();
+
+        const one = await requestJson({
+          port: server.port,
+          method: 'GET',
+          pathName: '/api/config'
+        });
+        const two = await requestJson({
+          port: server.port,
+          method: 'GET',
+          pathName: '/api/config'
+        });
+        const three = await requestJson({
+          port: server.port,
+          method: 'GET',
+          pathName: '/api/config'
+        });
+
+        assert.equal(one.status, 200);
+        assert.equal(two.status, 200);
+        assert.equal(three.status, 429);
+        assert.equal(three.data.ok, false);
       } finally {
         await server.stop();
         process.env.META_CLI_HOME = oldHome;

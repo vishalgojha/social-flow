@@ -16,7 +16,8 @@ const state = {
     enterToSend: true,
     autoScroll: true,
     compactMode: false,
-    themeMode: 'dark'
+    themeMode: 'dark',
+    gatewayApiKey: ''
   }
 };
 
@@ -91,6 +92,7 @@ const els = {
   settingAutoScroll: document.getElementById('settingAutoScroll'),
   settingCompactMode: document.getElementById('settingCompactMode'),
   settingThemeMode: document.getElementById('settingThemeMode'),
+  settingGatewayApiKey: document.getElementById('settingGatewayApiKey'),
   themeToggleBtn: document.getElementById('themeToggleBtn')
 };
 
@@ -157,6 +159,7 @@ function applySettings() {
   if (els.settingAutoScroll) els.settingAutoScroll.checked = Boolean(state.settings.autoScroll);
   if (els.settingCompactMode) els.settingCompactMode.checked = Boolean(state.settings.compactMode);
   if (els.settingThemeMode) els.settingThemeMode.value = String(state.settings.themeMode || 'dark');
+  if (els.settingGatewayApiKey) els.settingGatewayApiKey.value = String(state.settings.gatewayApiKey || '');
   document.body.classList.toggle('compact-mode', Boolean(state.settings.compactMode));
 
   const activeTheme = resolvedTheme(state.settings.themeMode || 'dark');
@@ -180,9 +183,18 @@ function setTopLatency(ms) {
 
 async function api(path, options = {}) {
   const startedAt = Date.now();
+  const headers = {
+    'Content-Type': 'application/json'
+  };
+  const gatewayApiKey = String(state.settings.gatewayApiKey || '').trim();
+  if (gatewayApiKey) headers['X-Gateway-Key'] = gatewayApiKey;
+  if (state.sessionId) headers['X-Session-Id'] = state.sessionId;
+  if (options.headers && typeof options.headers === 'object') {
+    Object.assign(headers, options.headers);
+  }
   const res = await fetch(path, {
     method: options.method || 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: options.body ? JSON.stringify(options.body) : undefined
   });
   setTopLatency(Date.now() - startedAt);
@@ -658,7 +670,7 @@ function setActiveView(view) {
     config: { tag: 'Config', title: 'Runtime profile, defaults, and token state.' },
     devtools: { tag: 'Developer Toolkit', title: 'Commands, providers, and integration shortcuts.' },
     help: { tag: 'Help', title: 'Prompt patterns for developer and marketing flows.' },
-    settings: { tag: 'Settings', title: 'Keyboard, auto-scroll, and compact display options.' }
+    settings: { tag: 'Settings', title: 'Keyboard, theme, and gateway security settings.' }
   };
   const copy = titles[view] || titles.chat;
   if (els.viewTag) els.viewTag.textContent = copy.tag;
@@ -1009,6 +1021,13 @@ function wireEvents() {
     els.settingThemeMode.addEventListener('change', () => {
       state.settings.themeMode = String(els.settingThemeMode.value || 'dark');
       applySettings();
+      persistSettings();
+    });
+  }
+
+  if (els.settingGatewayApiKey) {
+    els.settingGatewayApiKey.addEventListener('change', () => {
+      state.settings.gatewayApiKey = String(els.settingGatewayApiKey.value || '').trim();
       persistSettings();
     });
   }

@@ -934,7 +934,22 @@ button {
   padding: 6px 8px;
 }
 
+.setting-input {
+  min-width: 220px;
+  width: min(320px, 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg3);
+  color: var(--text);
+  padding: 6px 8px;
+}
+
 .setting-select:focus {
+  outline: none;
+  border-color: rgba(56, 189, 248, 0.45);
+}
+
+.setting-input:focus {
   outline: none;
   border-color: rgba(56, 189, 248, 0.45);
 }
@@ -1094,6 +1109,11 @@ body.compact-mode .composer {
   .ops-actions .ghost-btn {
     flex: 1;
     min-width: 0;
+  }
+
+  .setting-input {
+    min-width: 0;
+    width: 100%;
   }
 }
 
