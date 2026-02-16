@@ -218,6 +218,48 @@
 
             <article class="data-card">
               <div class="ops-card-head">
+                <h3>Knowledge Sources</h3>
+                <button id="opsSourcesRefreshBtn" class="ghost-btn small">Refresh Sources</button>
+              </div>
+              <div class="source-controls">
+                <label class="guard-field">
+                  <span>Name</span>
+                  <input id="opsSourceNameInput" type="text" placeholder="Example: Meta Campaign Feed" />
+                </label>
+                <label class="guard-field">
+                  <span>Connector</span>
+                  <select id="opsSourceConnectorSelect">
+                    <option value="facebook_ads">facebook_ads</option>
+                    <option value="instagram_insights">instagram_insights</option>
+                    <option value="whatsapp_events">whatsapp_events</option>
+                    <option value="marketing_campaigns">marketing_campaigns</option>
+                    <option value="csv_upload">csv_upload</option>
+                    <option value="webhook">webhook</option>
+                    <option value="custom">custom</option>
+                  </select>
+                </label>
+                <label class="guard-field">
+                  <span>Sync Mode</span>
+                  <select id="opsSourceSyncModeSelect">
+                    <option value="manual">manual</option>
+                    <option value="scheduled">scheduled</option>
+                  </select>
+                </label>
+                <label class="guard-toggle">
+                  <input id="opsSourceEnabledInput" type="checkbox" checked />
+                  <span>Enabled</span>
+                </label>
+                <div class="source-actions">
+                  <button id="opsSourceSaveBtn" class="ghost-btn small">Save Source</button>
+                  <button id="opsSourceSyncBtn" class="ghost-btn small">Sync All</button>
+                </div>
+              </div>
+              <div id="opsSourcesTable" class="table-wrap"></div>
+              <p id="opsSourcesStatusText" class="guard-status">No sources loaded yet.</p>
+            </article>
+
+            <article class="data-card">
+              <div class="ops-card-head">
                 <h3>Alerts</h3>
                 <button id="opsAckTokenBtn" class="ghost-btn small">Ack Token Alerts</button>
               </div>

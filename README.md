@@ -107,7 +107,7 @@ This includes API version, default IDs, and tokens. The CLI never prints full to
 - `agent`: safe planning + execution with scoped memory
 - `chat`: conversational multi-turn AI assistant with persistent sessions
 - `gateway`: localhost web UI + API gateway for chat/agent workflows
-- `ops`: morning operations workflow, alerts, approvals, scheduler, roles
+- `ops`: morning operations workflow, alerts, approvals, scheduler, roles, knowledge sources
 - `accounts`: manage multiple profiles (multi-client)
 - `batch`: run tool-based jobs from JSON/CSV
 
@@ -300,6 +300,16 @@ Other 16GB-friendly models:
 
 - `qwen2.5:7b`
 - `mistral:7b`
+
+## Ops Knowledge Sources
+
+Onyx-style connector visibility is available in both CLI and localhost Ops Center.
+
+```bash
+social ops sources list
+social ops sources upsert --name "Campaign Source" --connector csv_upload --sync-mode manual
+social ops sources sync
+```
 
 ## AI Natural Language Interface (`social ai`)
 

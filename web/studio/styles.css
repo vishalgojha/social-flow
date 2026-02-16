@@ -726,6 +726,20 @@ textarea {
   gap: 8px;
 }
 
+.source-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.source-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .guard-field {
   display: flex;
   flex-direction: column;
@@ -947,6 +961,10 @@ body.compact-mode .composer {
   }
 
   .guard-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .source-controls {
     grid-template-columns: 1fr;
   }
 

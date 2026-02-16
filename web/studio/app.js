@@ -4,6 +4,7 @@ const state = {
   activeView: 'chat',
   workspace: 'default',
   opsSnapshot: null,
+  sources: [],
   guardPolicy: null,
   latestPayload: {
     history: [],
@@ -75,6 +76,15 @@ const els = {
   opsGuardRequirePauseApprovalInput: document.getElementById('opsGuardRequirePauseApprovalInput'),
   opsGuardPolicySaveBtn: document.getElementById('opsGuardPolicySaveBtn'),
   opsGuardStatusText: document.getElementById('opsGuardStatusText'),
+  opsSourcesRefreshBtn: document.getElementById('opsSourcesRefreshBtn'),
+  opsSourceNameInput: document.getElementById('opsSourceNameInput'),
+  opsSourceConnectorSelect: document.getElementById('opsSourceConnectorSelect'),
+  opsSourceSyncModeSelect: document.getElementById('opsSourceSyncModeSelect'),
+  opsSourceEnabledInput: document.getElementById('opsSourceEnabledInput'),
+  opsSourceSaveBtn: document.getElementById('opsSourceSaveBtn'),
+  opsSourceSyncBtn: document.getElementById('opsSourceSyncBtn'),
+  opsSourcesTable: document.getElementById('opsSourcesTable'),
+  opsSourcesStatusText: document.getElementById('opsSourcesStatusText'),
   configDump: document.getElementById('configDump'),
   refreshConfigBtn: document.getElementById('refreshConfigBtn'),
   settingEnterSend: document.getElementById('settingEnterSend'),
@@ -359,6 +369,48 @@ function renderOpsApprovals(approvals) {
   `;
 }
 
+function setSourcesStatus(text) {
+  if (els.opsSourcesStatusText) {
+    els.opsSourcesStatusText.textContent = text;
+  }
+}
+
+function sourceRowAction(source) {
+  if (!source || source.enabled === false) return '<span class="mono">disabled</span>';
+  return `<button class="ghost-btn small js-source-sync" data-id="${escapeHtml(source.id)}">Sync</button>`;
+}
+
+function renderSources(sources) {
+  const rows = Array.isArray(sources) ? sources : [];
+  state.sources = rows;
+
+  if (!els.opsSourcesTable) return;
+  if (!rows.length) {
+    els.opsSourcesTable.innerHTML = '<p class="empty-note">No sources configured yet.</p>';
+    setSourcesStatus('No sources loaded.');
+    return;
+  }
+
+  const body = rows.map((s) => `
+    <tr>
+      <td>${escapeHtml(s.name || '')}</td>
+      <td>${escapeHtml(s.connector || '')}</td>
+      <td>${escapeHtml(s.status || '')}</td>
+      <td>${escapeHtml(String(s.itemCount ?? 0))}</td>
+      <td>${escapeHtml(fmtTime(s.lastSyncAt))}</td>
+      <td>${sourceRowAction(s)}</td>
+    </tr>
+  `).join('');
+
+  els.opsSourcesTable.innerHTML = `
+    <table class="mini-table">
+      <thead><tr><th>Name</th><th>Connector</th><th>Status</th><th>Items</th><th>Last Sync</th><th>Action</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
+  setSourcesStatus(`Loaded ${rows.length} sources.`);
+}
+
 function renderOpsSnapshot(snapshot) {
   state.opsSnapshot = snapshot || state.opsSnapshot;
   const s = state.opsSnapshot?.summary || {};
@@ -368,6 +420,12 @@ function renderOpsSnapshot(snapshot) {
   if (els.opsLeadsDue) els.opsLeadsDue.textContent = String(s.leadsDue || 0);
   if (els.opsSchedulesDue) els.opsSchedulesDue.textContent = String(s.schedulesDue || 0);
   if (s.guardPolicy) renderGuardPolicy(s.guardPolicy);
+  if (Array.isArray(state.opsSnapshot?.sources)) {
+    renderSources(state.opsSnapshot.sources);
+  }
+  if (Number.isFinite(Number(s.sourcesConfigured)) || Number.isFinite(Number(s.sourcesReady))) {
+    setSourcesStatus(`Sources ready ${s.sourcesReady || 0}/${s.sourcesConfigured || 0}`);
+  }
 
   renderOpsAlerts(state.opsSnapshot?.alerts || []);
   renderOpsApprovals(state.opsSnapshot?.approvals || []);
@@ -468,15 +526,62 @@ async function saveGuardPolicy() {
   appendMessage('system', `Guard policy updated for ${state.workspace}.`);
 }
 
+async function refreshSources() {
+  const ws = encodeURIComponent(state.workspace || 'default');
+  const res = await api(`/api/ops/sources?workspace=${ws}`);
+  renderSources(res.sources || []);
+}
+
+async function saveSource() {
+  const name = String(els.opsSourceNameInput?.value || '').trim();
+  const connector = String(els.opsSourceConnectorSelect?.value || '').trim();
+  const syncMode = String(els.opsSourceSyncModeSelect?.value || 'manual').trim();
+  const enabled = Boolean(els.opsSourceEnabledInput?.checked);
+  if (!name) throw new Error('Source name is required.');
+  if (!connector) throw new Error('Connector is required.');
+
+  const res = await api('/api/ops/sources/upsert', {
+    method: 'POST',
+    body: {
+      workspace: state.workspace,
+      name,
+      connector,
+      syncMode,
+      enabled
+    }
+  });
+
+  if (res.snapshot) renderOpsSnapshot(res.snapshot);
+  await refreshSources();
+  appendMessage('system', `Source saved: ${name} (${connector}).`);
+}
+
+async function syncSources(ids = null) {
+  const body = { workspace: state.workspace };
+  if (Array.isArray(ids) && ids.length) body.sourceIds = ids;
+  const res = await api('/api/ops/sources/sync', {
+    method: 'POST',
+    body
+  });
+  if (res.snapshot) renderOpsSnapshot(res.snapshot);
+  await refreshSources();
+  const count = Array.isArray(res.result) ? res.result.length : 0;
+  appendMessage('system', `Source sync completed for ${count} source(s).`);
+}
+
 async function refreshOps() {
   try {
     const ws = encodeURIComponent(state.workspace || 'default');
     const res = await api(`/api/ops/summary?workspace=${ws}`);
     renderOpsSnapshot(res);
+    if (!Array.isArray(res.sources)) {
+      await refreshSources();
+    }
   } catch (error) {
     if (els.opsAlertsTable) {
       els.opsAlertsTable.innerHTML = `<p class="empty-note">Failed to load ops data: ${escapeHtml(error.message)}</p>`;
     }
+    setSourcesStatus(`Failed to load sources: ${error.message}`);
   }
 }
 
@@ -761,6 +866,36 @@ function wireEvents() {
   if (els.opsRefreshBtn) {
     els.opsRefreshBtn.addEventListener('click', refreshOps);
   }
+  if (els.opsSourcesRefreshBtn) {
+    els.opsSourcesRefreshBtn.addEventListener('click', async () => {
+      try {
+        await refreshSources();
+      } catch (error) {
+        setSourcesStatus(`Failed to refresh sources: ${error.message}`);
+        appendMessage('system', `Ops error: ${error.message}`);
+      }
+    });
+  }
+  if (els.opsSourceSaveBtn) {
+    els.opsSourceSaveBtn.addEventListener('click', async () => {
+      try {
+        await saveSource();
+      } catch (error) {
+        setSourcesStatus(`Failed to save source: ${error.message}`);
+        appendMessage('system', `Ops error: ${error.message}`);
+      }
+    });
+  }
+  if (els.opsSourceSyncBtn) {
+    els.opsSourceSyncBtn.addEventListener('click', async () => {
+      try {
+        await syncSources();
+      } catch (error) {
+        setSourcesStatus(`Failed to sync sources: ${error.message}`);
+        appendMessage('system', `Ops error: ${error.message}`);
+      }
+    });
+  }
   if (els.opsGuardRefreshBtn) {
     els.opsGuardRefreshBtn.addEventListener('click', async () => {
       try {
@@ -840,6 +975,8 @@ function wireEvents() {
         await resolveApprovalById(id, 'approve');
       } else if (btn.classList.contains('js-ops-reject')) {
         await resolveApprovalById(id, 'reject');
+      } else if (btn.classList.contains('js-source-sync')) {
+        await syncSources([id]);
       }
     } catch (error) {
       appendMessage('system', `Ops error: ${error.message}`);

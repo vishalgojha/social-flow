@@ -29,6 +29,13 @@ function normalizeGuardMode(mode) {
   return '';
 }
 
+function csvIds(v) {
+  return String(v || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
 function printRows(title, rows) {
   console.log(chalk.bold(`\n${title}`));
   if (!rows.length) {
@@ -581,6 +588,76 @@ function registerOpsCommands(program) {
         return;
       }
       printRows(`Run-due results (${ws})`, results.map((r) => `${r.id} | ${r.status} | next=${r.nextRunAt || 'none'}`));
+    });
+
+  const sources = ops.command('sources').description('Knowledge sources and connector sync status');
+
+  sources
+    .command('list')
+    .description('List configured sources')
+    .option('--workspace <name>', 'Workspace/profile name')
+    .option('--json', 'Output JSON')
+    .action((options) => {
+      const ws = workspaceFrom(options);
+      rbac.assertCan({ workspace: ws, action: 'read' });
+      const rows = storage.listSources(ws);
+      if (options.json) {
+        console.log(JSON.stringify({ workspace: ws, sources: rows }, null, 2));
+        return;
+      }
+      printRows(
+        `Sources (${ws})`,
+        rows.map((x) => `${x.id} | ${x.enabled ? 'on' : 'off'} | ${x.connector} | ${x.syncMode} | ${x.status} | items=${x.itemCount}`)
+      );
+    });
+
+  sources
+    .command('upsert')
+    .description('Create or update a source definition')
+    .option('--workspace <name>', 'Workspace/profile name')
+    .option('--id <id>', 'Existing source id to update')
+    .requiredOption('--name <name>', 'Source display name')
+    .requiredOption('--connector <name>', 'facebook_ads|instagram_insights|whatsapp_events|marketing_campaigns|csv_upload|webhook|custom')
+    .option('--sync-mode <mode>', 'manual|scheduled', 'manual')
+    .option('--enabled <bool>', 'true|false', 'true')
+    .option('--json', 'Output JSON')
+    .action((options) => {
+      const ws = workspaceFrom(options);
+      rbac.assertCan({ workspace: ws, action: 'write' });
+      const source = storage.upsertSource(ws, {
+        id: options.id,
+        name: options.name,
+        connector: options.connector,
+        syncMode: options.syncMode,
+        enabled: parseBool(options.enabled, true)
+      });
+      if (options.json) {
+        console.log(JSON.stringify({ workspace: ws, source }, null, 2));
+        return;
+      }
+      console.log(chalk.green(`\nOK Source saved: ${source.id} (${source.name})\n`));
+    });
+
+  sources
+    .command('sync')
+    .description('Run sync for one or more sources')
+    .option('--workspace <name>', 'Workspace/profile name')
+    .option('--id <id>', 'Single source id')
+    .option('--ids <csv>', 'Comma-separated source ids')
+    .option('--json', 'Output JSON')
+    .action((options) => {
+      const ws = workspaceFrom(options);
+      const ids = options.id ? [String(options.id).trim()] : csvIds(options.ids);
+      const results = workflows.syncSources({
+        workspace: ws,
+        sourceIds: ids.length ? ids : null,
+        config
+      });
+      if (options.json) {
+        console.log(JSON.stringify({ workspace: ws, results }, null, 2));
+        return;
+      }
+      printRows(`Source sync (${ws})`, results.map((r) => `${r.id} | ${r.status}`));
     });
 
   const integrations = ops.command('integrations').description('Workspace integration settings (webhooks)');

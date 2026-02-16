@@ -228,6 +228,43 @@ module.exports = [
         assert.equal(guardSet.data.guardPolicy.thresholds.spendSpikePct, 44);
         assert.equal(guardSet.data.guardPolicy.limits.maxCampaignsPerRun, 3);
 
+        const sourceUpsert = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/ops/sources/upsert',
+          body: {
+            workspace: 'default',
+            name: 'Campaign Source',
+            connector: 'csv_upload',
+            syncMode: 'manual',
+            enabled: true
+          }
+        });
+        assert.equal(sourceUpsert.status, 200);
+        assert.equal(sourceUpsert.data.ok, true);
+        assert.equal(sourceUpsert.data.source.connector, 'csv_upload');
+
+        const sources = await requestJson({
+          port: server.port,
+          method: 'GET',
+          pathName: '/api/ops/sources?workspace=default'
+        });
+        assert.equal(sources.status, 200);
+        assert.equal(sources.data.ok, true);
+        assert.equal(Array.isArray(sources.data.sources), true);
+        assert.equal(sources.data.sources.length > 0, true);
+
+        const sourceSync = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/ops/sources/sync',
+          body: { workspace: 'default' }
+        });
+        assert.equal(sourceSync.status, 200);
+        assert.equal(sourceSync.data.ok, true);
+        assert.equal(Array.isArray(sourceSync.data.result), true);
+        assert.equal(sourceSync.data.result.length > 0, true);
+
         const run = await requestJson({
           port: server.port,
           method: 'POST',

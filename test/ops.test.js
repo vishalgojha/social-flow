@@ -185,5 +185,33 @@ module.exports = [
       assert.equal(storage.listActionLog(ws).length, 1);
       assert.equal(storage.listRollbackSnapshots(ws).length, 1);
     })
+  },
+  {
+    name: 'ops sources can be upserted and synced',
+    fn: () => withTempHome(() => {
+      const { ConfigManager } = configSingleton;
+      const cfg = new ConfigManager();
+      cfg.createProfile('clientA');
+
+      const ws = storage.ensureWorkspace('clientA');
+      const source = storage.upsertSource(ws, {
+        name: 'CSV Leads',
+        connector: 'csv_upload',
+        syncMode: 'manual',
+        enabled: true
+      });
+      assert.equal(source.connector, 'csv_upload');
+
+      const results = workflows.syncSources({
+        workspace: ws,
+        config: cfg
+      });
+      assert.equal(results.length, 1);
+      assert.equal(results[0].status, 'ok');
+
+      const after = storage.getSource(ws, source.id);
+      assert.equal(after.status, 'ready');
+      assert.equal(after.itemCount > 0, true);
+    })
   }
 ];
