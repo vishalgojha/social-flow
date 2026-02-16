@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+set -eu
+
+REMOTE_NAME="${1:-origin}"
+REMOTE_URL="${2:-}"
+
+SCRIPT_PATH="scripts/write-codex-handoff.js"
+if [ ! -f "$SCRIPT_PATH" ]; then
+  exit 0
+fi
+
+node "$SCRIPT_PATH" --remote "$REMOTE_NAME" --url "$REMOTE_URL"
