@@ -8,6 +8,7 @@ const { executeIntent } = require('../lib/ai/executor');
 const { formatResult } = require('../lib/ai/format');
 const { showConfirmation } = require('../lib/ui/confirm');
 const intentsSchema = require('../lib/ai/intents.json');
+const { intentRisk } = require('../lib/ai/contract');
 
 function parseInputField(field, value) {
   const trimmed = String(value || '').trim();
@@ -48,7 +49,7 @@ function printWarnings(warnings) {
 }
 
 function riskForIntent(intent) {
-  return intentsSchema[intent.action]?.risk || 'low';
+  return intentsSchema[intent.action]?.risk || intentRisk(intent.action) || 'low';
 }
 
 function printValidationIssues(validation) {

@@ -1,0 +1,640 @@
+{
+  "version": "1.0.0",
+  "global": {
+    "no_heuristics": true,
+    "default_fallback_intent": null,
+    "risk_levels": ["low", "medium", "high"],
+    "confirmation_policy": {
+      "low": "auto_or_confirm",
+      "medium": "confirm",
+      "high": "hard_confirm"
+    }
+  },
+  "intents": [
+    {
+      "id": "connect_account",
+      "title": "Connect Social Account",
+      "domain": "auth",
+      "risk": "medium",
+      "utterances": ["connect account", "connect facebook", "connect instagram", "connect whatsapp business"],
+      "negative_utterances": ["disconnect", "sign out"],
+      "required_slots": [
+        { "name": "platform", "type": "enum", "validation": "enum:facebook,instagram,whatsapp" }
+      ],
+      "optional_slots": [
+        { "name": "accountId", "type": "string", "validation": "non_empty" }
+      ],
+      "disambiguation_questions": ["Which provider should I connect? Facebook Page, Instagram Business, or WhatsApp Business?"],
+      "executor": {
+        "tool": "oauth_connect",
+        "args_map": { "provider": "platform", "account_id": "accountId" }
+      },
+      "success_output": {
+        "format": "table",
+        "fields": ["provider", "account", "scopes", "status"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["token_expired", "rate_limited", "network_error"],
+        "user_guidance": ["Re-authenticate with provider and try again.", "Check network and retry.", "Reduce request rate or wait and retry."]
+      }
+    },
+    {
+      "id": "disconnect_account",
+      "title": "Disconnect Social Account",
+      "domain": "auth",
+      "risk": "medium",
+      "utterances": ["disconnect account", "disconnect facebook", "disconnect instagram", "disconnect whatsapp business"],
+      "negative_utterances": ["connect", "sign in"],
+      "required_slots": [
+        { "name": "platform", "type": "enum", "validation": "enum:facebook,instagram,whatsapp" }
+      ],
+      "optional_slots": [
+        { "name": "accountId", "type": "string", "validation": "non_empty" }
+      ],
+      "disambiguation_questions": ["Which provider should I disconnect?"],
+      "executor": {
+        "tool": "oauth_disconnect",
+        "args_map": { "provider": "platform", "account_id": "accountId" }
+      },
+      "success_output": {
+        "format": "summary",
+        "fields": ["provider", "status"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["network_error"],
+        "user_guidance": ["Ensure the account is still connected and retry."]
+      }
+    },
+    {
+      "id": "refresh_token",
+      "title": "Refresh Authentication Token",
+      "domain": "auth",
+      "risk": "medium",
+      "utterances": ["refresh token"],
+      "negative_utterances": ["revoke token", "sign out"],
+      "required_slots": [
+        { "name": "platform", "type": "enum", "validation": "enum:facebook,instagram,whatsapp" }
+      ],
+      "optional_slots": [
+        { "name": "accountId", "type": "string", "validation": "non_empty" }
+      ],
+      "disambiguation_questions": ["Which provider token should be refreshed?"],
+      "executor": {
+        "tool": "oauth_refresh",
+        "args_map": { "provider": "platform", "account_id": "accountId" }
+      },
+      "success_output": {
+        "format": "summary",
+        "fields": ["provider", "expires_at"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["token_expired"],
+        "user_guidance": ["Re-authenticate with provider and try again."]
+      }
+    },
+    {
+      "id": "publish_post",
+      "title": "Publish Post",
+      "domain": "marketing",
+      "risk": "medium",
+      "utterances": ["publish post", "create post", "make a post"],
+      "negative_utterances": ["send dm", "send a message", "broadcast", "ad campaign"],
+      "required_slots": [
+        { "name": "platform", "type": "enum", "validation": "enum:facebook,instagram" },
+        { "name": "accountId", "type": "string", "validation": "non_empty" },
+        { "name": "message", "type": "string", "validation": "non_empty" }
+      ],
+      "optional_slots": [
+        { "name": "mediaUrl", "type": "url", "validation": "url" },
+        { "name": "scheduledAt", "type": "datetime", "validation": "datetime_future" }
+      ],
+      "disambiguation_questions": ["Do you want to publish a post (feed) or send a direct message?"],
+      "executor": {
+        "tool": "publish_post",
+        "args_map": { "platform": "platform", "account_id": "accountId", "text": "message", "media_url": "mediaUrl", "schedule_time": "scheduledAt" }
+      },
+      "success_output": {
+        "format": "json",
+        "fields": ["post_id", "platform", "status", "url"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["rate_limited", "network_error"],
+        "user_guidance": ["Wait for rate limit reset and retry.", "Check network and retry."]
+      }
+    },
+    {
+      "id": "send_dm",
+      "title": "Send Direct Message",
+      "domain": "marketing",
+      "risk": "high",
+      "utterances": ["send dm", "send a direct message", "message a user"],
+      "negative_utterances": ["post", "create post", "broadcast", "campaign"],
+      "required_slots": [
+        { "name": "platform", "type": "enum", "validation": "enum:instagram,whatsapp" },
+        { "name": "accountId", "type": "string", "validation": "non_empty" },
+        { "name": "recipientId", "type": "string", "validation": "non_empty" },
+        { "name": "messageBody", "type": "string", "validation": "non_empty" }
+      ],
+      "optional_slots": [
+        { "name": "mediaUrl", "type": "url", "validation": "url" }
+      ],
+      "disambiguation_questions": ["Is this a direct message to a specific recipient?"],
+      "executor": {
+        "tool": "send_dm",
+        "args_map": { "platform": "platform", "account_id": "accountId", "recipient_id": "recipientId", "text": "messageBody", "media_url": "mediaUrl" }
+      },
+      "success_output": {
+        "format": "json",
+        "fields": ["message_id", "platform", "status"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["rate_limited", "network_error"],
+        "user_guidance": ["Respect opt-in rules and retry after rate limit.", "Check network and retry."]
+      }
+    },
+    {
+      "id": "create_ad",
+      "title": "Create Ad Campaign",
+      "domain": "marketing",
+      "risk": "high",
+      "utterances": ["create ad", "new ad campaign", "make an ad"],
+      "negative_utterances": ["post", "send dm"],
+      "required_slots": [
+        { "name": "platform", "type": "enum", "validation": "enum:facebook" },
+        { "name": "accountId", "type": "string", "validation": "non_empty" },
+        { "name": "adName", "type": "string", "validation": "non_empty" },
+        { "name": "objective", "type": "enum", "validation": "enum:AWARENESS,TRAFFIC,LEADS,SALES" },
+        { "name": "dailyBudget", "type": "number", "validation": "min:1" }
+      ],
+      "optional_slots": [
+        { "name": "creativeText", "type": "string", "validation": "non_empty" },
+        { "name": "creativeUrl", "type": "url", "validation": "url" }
+      ],
+      "disambiguation_questions": ["Do you want to create an ad campaign or just post to the feed?"],
+      "executor": {
+        "tool": "create_ad_campaign",
+        "args_map": { "platform": "platform", "account_id": "accountId", "name": "adName", "objective": "objective", "budget": "dailyBudget", "creative_text": "creativeText", "creative_url": "creativeUrl" }
+      },
+      "success_output": {
+        "format": "json",
+        "fields": ["campaign_id", "status", "budget"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["rate_limited", "network_error"],
+        "user_guidance": ["Review targeting settings and retry after rate limit.", "Check network and retry."]
+      }
+    },
+    {
+      "id": "broadcast_message",
+      "title": "Broadcast Message",
+      "domain": "marketing",
+      "risk": "high",
+      "utterances": ["broadcast message", "send broadcast", "bulk message"],
+      "negative_utterances": ["post", "ad"],
+      "required_slots": [
+        { "name": "platform", "type": "enum", "validation": "enum:whatsapp" },
+        { "name": "accountId", "type": "string", "validation": "non_empty" },
+        { "name": "recipientList", "type": "string", "validation": "non_empty" },
+        { "name": "messageBody", "type": "string", "validation": "non_empty" }
+      ],
+      "optional_slots": [
+        { "name": "templateName", "type": "string", "validation": "non_empty" }
+      ],
+      "disambiguation_questions": ["Is this a one-to-many broadcast to WhatsApp recipients?"],
+      "executor": {
+        "tool": "broadcast_message",
+        "args_map": { "platform": "platform", "account_id": "accountId", "recipients": "recipientList", "text": "messageBody", "template": "templateName" }
+      },
+      "success_output": {
+        "format": "json",
+        "fields": ["delivery_count", "platform", "status"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["rate_limited", "network_error"],
+        "user_guidance": ["Ensure opt-in compliance and retry after rate limit.", "Check network and retry."]
+      }
+    },
+    {
+      "id": "get_metrics",
+      "title": "Get Analytics",
+      "domain": "marketing",
+      "risk": "low",
+      "utterances": ["get metrics", "show analytics", "report"],
+      "negative_utterances": ["send dm", "broadcast", "ad"],
+      "required_slots": [
+        { "name": "platform", "type": "enum", "validation": "enum:facebook,instagram,whatsapp" },
+        { "name": "accountId", "type": "string", "validation": "non_empty" },
+        { "name": "metricType", "type": "enum", "validation": "enum:reach,impressions,engagement,conversions" }
+      ],
+      "optional_slots": [
+        { "name": "since", "type": "datetime", "validation": "datetime_past" },
+        { "name": "until", "type": "datetime", "validation": "datetime_past" }
+      ],
+      "disambiguation_questions": ["Which metric do you want: reach, impressions, engagement, or conversions?"],
+      "executor": {
+        "tool": "get_metrics",
+        "args_map": { "platform": "platform", "account_id": "accountId", "metric": "metricType", "since": "since", "until": "until" }
+      },
+      "success_output": {
+        "format": "table",
+        "fields": ["date", "metric", "value"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["network_error"],
+        "user_guidance": ["Check network and retry."]
+      }
+    },
+    {
+      "id": "subscribe_webhook",
+      "title": "Subscribe Webhook",
+      "domain": "developer",
+      "risk": "medium",
+      "utterances": ["subscribe webhook", "add webhook", "register webhook"],
+      "negative_utterances": ["unsubscribe", "remove webhook"],
+      "required_slots": [
+        { "name": "platform", "type": "enum", "validation": "enum:facebook,instagram,whatsapp" },
+        { "name": "accountId", "type": "string", "validation": "non_empty" },
+        { "name": "callbackUrl", "type": "url", "validation": "url" }
+      ],
+      "optional_slots": [
+        { "name": "verifyToken", "type": "string", "validation": "non_empty" }
+      ],
+      "disambiguation_questions": ["Which platform should receive webhook events?"],
+      "executor": {
+        "tool": "subscribe_webhook",
+        "args_map": { "platform": "platform", "account_id": "accountId", "callback_url": "callbackUrl", "verify_token": "verifyToken" }
+      },
+      "success_output": {
+        "format": "json",
+        "fields": ["platform", "status", "challenge_response"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["network_error"],
+        "user_guidance": ["Verify the callback URL and retry."]
+      }
+    },
+    {
+      "id": "unsubscribe_webhook",
+      "title": "Unsubscribe Webhook",
+      "domain": "developer",
+      "risk": "medium",
+      "utterances": ["unsubscribe webhook", "remove webhook", "delete webhook"],
+      "negative_utterances": ["subscribe", "register"],
+      "required_slots": [
+        { "name": "platform", "type": "enum", "validation": "enum:facebook,instagram,whatsapp" },
+        { "name": "accountId", "type": "string", "validation": "non_empty" }
+      ],
+      "optional_slots": [],
+      "disambiguation_questions": ["Which platform webhook subscription should I remove?"],
+      "executor": {
+        "tool": "unsubscribe_webhook",
+        "args_map": { "platform": "platform", "account_id": "accountId" }
+      },
+      "success_output": {
+        "format": "summary",
+        "fields": ["platform", "status"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["network_error"],
+        "user_guidance": ["Check network and retry."]
+      }
+    },
+    {
+      "id": "list_subscribers",
+      "title": "List Subscribers",
+      "domain": "marketing",
+      "risk": "low",
+      "utterances": ["list subscribers", "show subscribers", "list contacts"],
+      "negative_utterances": ["broadcast", "send dm"],
+      "required_slots": [
+        { "name": "platform", "type": "enum", "validation": "enum:whatsapp,instagram" },
+        { "name": "accountId", "type": "string", "validation": "non_empty" }
+      ],
+      "optional_slots": [],
+      "disambiguation_questions": ["Which platform subscribers do you want to list?"],
+      "executor": {
+        "tool": "list_subscribers",
+        "args_map": { "platform": "platform", "account_id": "accountId" }
+      },
+      "success_output": {
+        "format": "table",
+        "fields": ["id", "name", "opt_in", "labels"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["network_error"],
+        "user_guidance": ["Check permissions and retry."]
+      }
+    },
+    {
+      "id": "set_default_account",
+      "title": "Set Default Account",
+      "domain": "hub",
+      "risk": "low",
+      "utterances": ["set default account", "default account"],
+      "negative_utterances": ["list", "delete"],
+      "required_slots": [
+        { "name": "platform", "type": "enum", "validation": "enum:facebook,instagram,whatsapp" },
+        { "name": "accountId", "type": "string", "validation": "non_empty" }
+      ],
+      "optional_slots": [],
+      "disambiguation_questions": ["Which account should be the default?"],
+      "executor": {
+        "tool": "set_default_account",
+        "args_map": { "platform": "platform", "account_id": "accountId" }
+      },
+      "success_output": {
+        "format": "summary",
+        "fields": ["platform", "account", "default"]
+      },
+      "failure_handling": {
+        "retryable_errors": [],
+        "user_guidance": []
+      }
+    },
+    {
+      "id": "doctor",
+      "title": "Run Diagnostics",
+      "domain": "ops",
+      "risk": "low",
+      "utterances": ["doctor", "run diagnostics", "health check"],
+      "negative_utterances": [],
+      "required_slots": [],
+      "optional_slots": [
+        { "name": "platform", "type": "enum", "validation": "enum:facebook,instagram,whatsapp" }
+      ],
+      "disambiguation_questions": ["Do you want a global health check or provider-specific?"],
+      "executor": {
+        "tool": "doctor",
+        "args_map": { "provider": "platform" }
+      },
+      "success_output": {
+        "format": "table",
+        "fields": ["check", "status", "message", "remediation"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["network_error"],
+        "user_guidance": ["Run with elevated privileges and retry."]
+      }
+    },
+    {
+      "id": "install_hub_package",
+      "title": "Install Hub Package",
+      "domain": "hub",
+      "risk": "medium",
+      "utterances": ["install package", "install hub package"],
+      "negative_utterances": ["uninstall", "remove"],
+      "required_slots": [
+        { "name": "packageName", "type": "string", "validation": "non_empty" }
+      ],
+      "optional_slots": [
+        { "name": "version", "type": "string", "validation": "semver" }
+      ],
+      "disambiguation_questions": ["Which package name should be installed?"],
+      "executor": {
+        "tool": "install_package",
+        "args_map": { "name": "packageName", "version": "version" }
+      },
+      "success_output": {
+        "format": "summary",
+        "fields": ["package", "version", "status"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["network_error"],
+        "user_guidance": ["Verify package name and network, then retry."]
+      }
+    },
+    {
+      "id": "update_hub_packages",
+      "title": "Update Hub Packages",
+      "domain": "hub",
+      "risk": "medium",
+      "utterances": ["update packages", "update hub packages"],
+      "negative_utterances": ["install"],
+      "required_slots": [],
+      "optional_slots": [
+        { "name": "packageName", "type": "string", "validation": "non_empty" }
+      ],
+      "disambiguation_questions": ["Update a specific package or all?"],
+      "executor": {
+        "tool": "update_packages",
+        "args_map": { "name": "packageName" }
+      },
+      "success_output": {
+        "format": "summary",
+        "fields": ["updated", "skipped"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["network_error"],
+        "user_guidance": ["Check network and retry."]
+      }
+    },
+    {
+      "id": "rollback_update",
+      "title": "Rollback Update",
+      "domain": "hub",
+      "risk": "high",
+      "utterances": ["rollback", "rollback update"],
+      "negative_utterances": ["update", "install"],
+      "required_slots": [
+        { "name": "packageName", "type": "string", "validation": "non_empty" }
+      ],
+      "optional_slots": [],
+      "disambiguation_questions": ["Which package should be rolled back?"],
+      "executor": {
+        "tool": "rollback_package",
+        "args_map": { "name": "packageName" }
+      },
+      "success_output": {
+        "format": "summary",
+        "fields": ["package", "previous_version", "status"]
+      },
+      "failure_handling": {
+        "retryable_errors": [],
+        "user_guidance": ["Confirm target version and retry."]
+      }
+    },
+    {
+      "id": "verify_trust",
+      "title": "Verify Trust and Signature",
+      "domain": "hub",
+      "risk": "medium",
+      "utterances": ["verify trust", "check signatures", "trust"],
+      "negative_utterances": [],
+      "required_slots": [
+        { "name": "packageName", "type": "string", "validation": "non_empty" }
+      ],
+      "optional_slots": [],
+      "disambiguation_questions": ["Which package should be verified?"],
+      "executor": {
+        "tool": "verify_trust",
+        "args_map": { "name": "packageName" }
+      },
+      "success_output": {
+        "format": "json",
+        "fields": ["package", "signature_valid", "signer", "chain_ok"]
+      },
+      "failure_handling": {
+        "retryable_errors": [],
+        "user_guidance": ["Update trust store and retry."]
+      }
+    },
+    {
+      "id": "register_connector",
+      "title": "Register Connector",
+      "domain": "connector",
+      "risk": "high",
+      "utterances": ["register connector", "connect webhook source"],
+      "negative_utterances": ["unregister", "disconnect"],
+      "required_slots": [
+        { "name": "connectorType", "type": "enum", "validation": "enum:facebook_webhook,instagram_webhook,whatsapp_webhook,custom" },
+        { "name": "callbackUrl", "type": "url", "validation": "url" },
+        { "name": "verifyToken", "type": "string", "validation": "non_empty" }
+      ],
+      "optional_slots": [],
+      "disambiguation_questions": ["Which connector type should be registered?"],
+      "executor": {
+        "tool": "register_connector",
+        "args_map": { "type": "connectorType", "callback_url": "callbackUrl", "verify_token": "verifyToken" }
+      },
+      "success_output": {
+        "format": "json",
+        "fields": ["id", "status", "challenge_sent"]
+      },
+      "failure_handling": {
+        "retryable_errors": ["network_error"],
+        "user_guidance": ["Verify token and callback and retry."]
+      }
+    },
+    {
+      "id": "unregister_connector",
+      "title": "Unregister Connector",
+      "domain": "connector",
+      "risk": "high",
+      "utterances": ["unregister connector", "remove connector"],
+      "negative_utterances": ["register", "connect"],
+      "required_slots": [
+        { "name": "connectorId", "type": "string", "validation": "non_empty" }
+      ],
+      "optional_slots": [],
+      "disambiguation_questions": ["Which connector ID should be removed?"],
+      "executor": {
+        "tool": "unregister_connector",
+        "args_map": { "id": "connectorId" }
+      },
+      "success_output": {
+        "format": "summary",
+        "fields": ["id", "status"]
+      },
+      "failure_handling": {
+        "retryable_errors": [],
+        "user_guidance": []
+      }
+    },
+    {
+      "id": "inspect_intent",
+      "title": "Inspect Intent",
+      "domain": "developer",
+      "risk": "low",
+      "utterances": ["inspect intent", "show intent", "intent details"],
+      "negative_utterances": [],
+      "required_slots": [
+        { "name": "intentId", "type": "enum", "validation": "enum:connect_account,disconnect_account,refresh_token,publish_post,send_dm,create_ad,broadcast_message,get_metrics,subscribe_webhook,unsubscribe_webhook,list_subscribers,set_default_account,doctor,install_hub_package,update_hub_packages,rollback_update,verify_trust,register_connector,unregister_connector,inspect_intent,search_intents,unknown_input" }
+      ],
+      "optional_slots": [],
+      "disambiguation_questions": ["Which intent should be inspected?"],
+      "executor": {
+        "tool": "inspect_intent",
+        "args_map": { "intent_id": "intentId" }
+      },
+      "success_output": {
+        "format": "json",
+        "fields": ["id", "title", "domain", "risk", "slots", "disambiguation"]
+      },
+      "failure_handling": {
+        "retryable_errors": [],
+        "user_guidance": []
+      }
+    },
+    {
+      "id": "search_intents",
+      "title": "Search Intents",
+      "domain": "developer",
+      "risk": "low",
+      "utterances": ["search intents", "find intents"],
+      "negative_utterances": [],
+      "required_slots": [
+        { "name": "query", "type": "string", "validation": "non_empty" }
+      ],
+      "optional_slots": [
+        { "name": "domain", "type": "enum", "validation": "enum:marketing,developer,ops,connector,auth,hub" }
+      ],
+      "disambiguation_questions": ["What keyword should be used to search?"],
+      "executor": {
+        "tool": "search_intents",
+        "args_map": { "q": "query", "filter_domain": "domain" }
+      },
+      "success_output": {
+        "format": "table",
+        "fields": ["id", "title", "domain", "risk"]
+      },
+      "failure_handling": {
+        "retryable_errors": [],
+        "user_guidance": []
+      }
+    },
+    {
+      "id": "unknown_input",
+      "title": "Clarify Input",
+      "domain": "hub",
+      "risk": "low",
+      "utterances": [],
+      "negative_utterances": [],
+      "required_slots": [],
+      "optional_slots": [],
+      "disambiguation_questions": ["Say one of: connect account, disconnect account, refresh token, publish post, send dm, create ad, broadcast message, get metrics, subscribe webhook, unsubscribe webhook, list subscribers, set default account, doctor, install package, update packages, rollback, verify trust, register connector, unregister connector, inspect intent, search intents."],
+      "executor": {
+        "tool": "prompt_user",
+        "args_map": {}
+      },
+      "success_output": {
+        "format": "summary",
+        "fields": ["message"]
+      },
+      "failure_handling": {
+        "retryable_errors": [],
+        "user_guidance": []
+      }
+    }
+  ],
+  "onboarding": {
+    "style": "openclaw",
+    "steps": [
+      { "id": "welcome", "blocking": true, "ui": "screen" },
+      { "id": "provider_select", "blocking": true, "ui": "wizard", "choices": ["ollama", "openai", "anthropic", "openrouter", "xai", "gemini"] },
+      { "id": "auth_connect", "blocking": true, "apis": ["facebook", "instagram", "whatsapp"] },
+      { "id": "defaults_setup", "blocking": true, "items": ["profile", "pageId", "igUserId", "wabaId", "whatsappPhoneId"] },
+      { "id": "doctor_checks", "blocking": true, "checks": ["token_valid", "scopes", "webhooks", "rate_limit", "ops_storage", "hub_trust"] },
+      { "id": "ready", "blocking": false, "ui": "summary" }
+    ]
+  },
+  "tui": {
+    "style": "homebrew",
+    "commands": [
+      { "name": "search", "description": "search intents/tools/packages" },
+      { "name": "inspect", "description": "show full intent/tool contract" },
+      { "name": "install", "description": "install hub package/connector" },
+      { "name": "update", "description": "update installed packages" },
+      { "name": "run", "description": "execute selected intent with preview" },
+      { "name": "doctor", "description": "diagnostics and fixes" },
+      { "name": "trust", "description": "keys/policy/signature checks" }
+    ],
+    "agentic_panels": ["plan", "actions_queue", "live_logs", "approvals", "results", "rollback"],
+    "keyboard_shortcuts": [
+      { "key": "enter", "action": "execute_or_confirm" },
+      { "key": "e", "action": "edit_slots" },
+      { "key": "a", "action": "approve" },
+      { "key": "r", "action": "reject" },
+      { "key": "d", "action": "details" }
+    ]
+  }
+}

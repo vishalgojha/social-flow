@@ -1,0 +1,17 @@
+[
+  {
+    "id": "outcome_1771248678445_9u35w9",
+    "kind": "source_sync",
+    "summary": "Synced source \"CSV Sync Source\".",
+    "metrics": {
+      "status": "ready",
+      "itemCount": 13
+    },
+    "metadata": {
+      "sourceId": "source_1771248678430_dz127w",
+      "connector": "csv_upload",
+      "message": "Synced CSV Sync Source."
+    },
+    "createdAt": "2026-02-16T13:31:18.445Z"
+  }
+]

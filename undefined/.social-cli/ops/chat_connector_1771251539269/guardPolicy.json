@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "mode": "approval",
+  "thresholds": {
+    "spendSpikePct": 35,
+    "cpaSpikePct": 30,
+    "roasDropPct": 20
+  },
+  "limits": {
+    "maxBudgetAdjustmentPct": 20,
+    "maxCampaignsPerRun": 5,
+    "maxDailyAutoActions": 10,
+    "requireApprovalForPause": true
+  },
+  "cooldownMinutes": 60
+}

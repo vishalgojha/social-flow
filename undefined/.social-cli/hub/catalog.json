@@ -1,0 +1,134 @@
+[
+  {
+    "id": "connector.slack.alerts",
+    "name": "Slack Alerts Connector",
+    "type": "connector",
+    "description": "Routes Ops alerts and approvals into Slack channels.",
+    "tags": [
+      "ops",
+      "slack",
+      "alerts",
+      "connector"
+    ],
+    "versions": [
+      {
+        "version": "1.1.0",
+        "publishedAt": "2026-02-16T00:00:00.000Z",
+        "changelog": "Adds dedupe metadata and improved approval notifications.",
+        "publisher": "chaos-craft-labs",
+        "manifest": {
+          "entrypoint": "social ops integrations set --workspace <workspace> --slack-webhook <url>",
+          "requiredEnv": [
+            "SLACK_WEBHOOK_URL"
+          ],
+          "requiredScopes": [],
+          "risk": "medium"
+        },
+        "manifestHash": "10436afddf46339fbfa75e3a2ccfc1db484a730ff04193f85f5a24983f8dcf1f",
+        "signature": ""
+      },
+      {
+        "version": "1.0.0",
+        "publishedAt": "2026-02-10T00:00:00.000Z",
+        "changelog": "Initial Slack alerts connector release.",
+        "publisher": "chaos-craft-labs",
+        "manifest": {
+          "entrypoint": "social ops integrations set --workspace <workspace> --slack-webhook <url>",
+          "requiredEnv": [
+            "SLACK_WEBHOOK_URL"
+          ],
+          "requiredScopes": [],
+          "risk": "medium"
+        },
+        "manifestHash": "7741551671f8542c1bc203fa7e55637e932f588bcee715ad8a206aee6a4bec88",
+        "signature": ""
+      }
+    ]
+  },
+  {
+    "id": "playbook.morning-ops",
+    "name": "Morning Ops Playbook",
+    "type": "playbook",
+    "description": "Daily automation playbook for token health, spend checks, and lead follow-up.",
+    "tags": [
+      "ops",
+      "playbook",
+      "scheduler"
+    ],
+    "versions": [
+      {
+        "version": "1.0.0",
+        "publishedAt": "2026-02-15T00:00:00.000Z",
+        "changelog": "Initial production-ready morning run playbook.",
+        "publisher": "chaos-craft-labs",
+        "manifest": {
+          "entrypoint": "social ops morning-run --workspace <workspace> --spend <amount>",
+          "requiredEnv": [],
+          "requiredScopes": [],
+          "risk": "medium"
+        },
+        "manifestHash": "3963a8860b8d829549dcefa2d314cc4db2751c83f08a749d3ae0a1ef409f568f",
+        "signature": ""
+      }
+    ]
+  },
+  {
+    "id": "playbook.weekly-report",
+    "name": "Weekly Report Playbook",
+    "type": "playbook",
+    "description": "Generate weekly report summaries.",
+    "tags": [
+      "reports",
+      "playbook"
+    ],
+    "versions": [
+      {
+        "version": "1.0.0",
+        "publishedAt": "2026-02-16T00:00:00.000Z",
+        "changelog": "Initial release.",
+        "publisher": "acme-labs",
+        "manifest": {
+          "entrypoint": "social ops outcomes list --workspace <workspace>",
+          "requiredEnv": [],
+          "requiredScopes": [],
+          "risk": "low"
+        },
+        "manifestHash": "0110fcdd59ed3c814ba4feb43323682763325c329df6026f1ee12c5da8596603",
+        "signature": ""
+      }
+    ]
+  },
+  {
+    "id": "skill.whatsapp-followup",
+    "name": "WhatsApp Follow-up Skill",
+    "type": "skill",
+    "description": "Automates follow-up messaging for no-reply leads after approval.",
+    "tags": [
+      "whatsapp",
+      "skill",
+      "ops",
+      "leads"
+    ],
+    "versions": [
+      {
+        "version": "1.0.0",
+        "publishedAt": "2026-02-14T00:00:00.000Z",
+        "changelog": "Initial release with safe approval-first workflow.",
+        "publisher": "chaos-craft-labs",
+        "manifest": {
+          "entrypoint": "social chat --agentic",
+          "requiredEnv": [
+            "WHATSAPP_TOKEN",
+            "WHATSAPP_PHONE_NUMBER_ID"
+          ],
+          "requiredScopes": [
+            "whatsapp_business_messaging"
+          ],
+          "risk": "high"
+        },
+        "manifestHash": "cd66b7a6e27fc6d0044b5ce143df5831eb668b8913fecb70fd00ef6e34b60b70",
+        "signature": ""
+      }
+    ]
+  }
+]

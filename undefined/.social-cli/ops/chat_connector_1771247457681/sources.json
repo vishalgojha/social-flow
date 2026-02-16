@@ -1,0 +1,17 @@
+[
+  {
+    "id": "source_1771247457697_4sd5wf",
+    "name": "CSV Sync Source",
+    "connector": "csv_upload",
+    "enabled": true,
+    "syncMode": "manual",
+    "status": "ready",
+    "itemCount": 14,
+    "lastSyncAt": "2026-02-16T13:10:57.698Z",
+    "lastSyncStatus": "ok",
+    "lastError": "",
+    "config": {},
+    "createdAt": "2026-02-16T13:10:57.697Z",
+    "updatedAt": "2026-02-16T13:10:57.708Z"
+  }
+]

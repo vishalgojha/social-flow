@@ -7,7 +7,10 @@
     "social": "bin/social.js"
   },
   "scripts": {
-    "test": "node test/run.js"
+    "test": "node test/run.js",
+    "build:social-ts": "tsc -p tsconfig.social.json",
+    "test:social-ts": "tsx --test tests/intent-parser.test.ts",
+    "social:dev": "tsx cli/index.ts"
   },
   "keywords": [
     "social",
@@ -56,7 +59,10 @@
     "ora": "^5.4.1"
   },
   "devDependencies": {
-    "eslint": "^8.54.0"
+    "@types/node": "^22.10.5",
+    "eslint": "^8.54.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
   },
   "engines": {
     "node": ">=18.0.0"

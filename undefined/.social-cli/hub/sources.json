@@ -1,0 +1,37 @@
+[
+  {
+    "source": "C:\\Users\\VISHAL~1\\AppData\\Local\\Temp\\social-hub-test-JVnE0K\\hub-source.json",
+    "merge": true,
+    "incomingCount": 1,
+    "totalCount": 4,
+    "syncedAt": "2026-02-16T14:20:57.643Z"
+  },
+  {
+    "source": "C:\\Users\\VISHAL~1\\AppData\\Local\\Temp\\social-hub-test-d0ubUg\\hub-source.json",
+    "merge": true,
+    "incomingCount": 1,
+    "totalCount": 4,
+    "syncedAt": "2026-02-16T14:19:00.220Z"
+  },
+  {
+    "source": "C:\\Users\\VISHAL~1\\AppData\\Local\\Temp\\social-hub-test-ZJXfvD\\hub-source.json",
+    "merge": true,
+    "incomingCount": 1,
+    "totalCount": 4,
+    "syncedAt": "2026-02-16T13:31:19.337Z"
+  },
+  {
+    "source": "C:\\Users\\VISHAL~1\\AppData\\Local\\Temp\\social-hub-test-V7YKws\\hub-source.json",
+    "merge": true,
+    "incomingCount": 1,
+    "totalCount": 4,
+    "syncedAt": "2026-02-16T13:20:05.875Z"
+  },
+  {
+    "source": "C:\\Users\\VISHAL~1\\AppData\\Local\\Temp\\social-hub-test-Kj4PdP\\hub-source.json",
+    "merge": true,
+    "incomingCount": 1,
+    "totalCount": 4,
+    "syncedAt": "2026-02-16T13:10:58.722Z"
+  }
+]

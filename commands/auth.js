@@ -47,9 +47,7 @@ async function promptScopes(api) {
 }
 
 function tokenHelpUrl(api, apiVersion) {
-  if (api === 'whatsapp') {
-    return 'https://developers.facebook.com/docs/whatsapp/cloud-api/get-started';
-  }
+  if (api === 'whatsapp') return '';
   // Explorer supports picking permissions in UI; we keep it simple.
   return `https://developers.facebook.com/tools/explorer/?version=${encodeURIComponent(apiVersion)}`;
 }
@@ -136,7 +134,11 @@ function registerAuthCommands(program) {
 
       if (!token) {
         const url = tokenHelpUrl(api, apiVersion);
-        if (url) {
+        if (api === 'whatsapp') {
+          console.log(chalk.gray('\nWhatsApp token hint:'));
+          console.log(chalk.cyan('  Meta App Dashboard -> WhatsApp -> API Setup -> Generate access token'));
+          console.log(chalk.gray('  Then paste the token below.\n'));
+        } else if (url) {
           if (options.open !== false) {
             console.log(chalk.gray(`\nOpening ${api} token page...`));
             console.log(chalk.cyan(`  ${url}\n`));

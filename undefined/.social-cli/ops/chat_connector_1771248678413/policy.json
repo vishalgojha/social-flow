@@ -1,0 +1,7 @@
+{
+  "spendThreshold": 200,
+  "autoApproveLowRisk": false,
+  "followupAfterDays": 3,
+  "requireApprovalForCampaignPause": true,
+  "requireApprovalForBulkWhatsApp": true
+}

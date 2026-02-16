@@ -106,6 +106,7 @@ This includes API version, default IDs, and tokens. The CLI never prints full to
 - `doctor`: quick diagnostics (sanitized config + setup hints)
 - `agent`: safe planning + execution with scoped memory
 - `chat`: conversational multi-turn AI assistant with persistent sessions
+- `tui`: agentic terminal dashboard (chat-style intent input + approvals + replay)
 - `gateway`: localhost web UI + API gateway for chat/agent workflows
 - `ops`: morning operations workflow, alerts, approvals, scheduler, roles, knowledge sources
 - `hub`: package hub for connectors, playbooks, and agent skills
@@ -113,6 +114,38 @@ This includes API version, default IDs, and tokens. The CLI never prints full to
 - `batch`: run tool-based jobs from JSON/CSV
 
 Run `social <group> --help` for full flags per command.
+
+## Agentic TUI
+
+```bash
+social tui
+```
+
+OpenClaw-style launcher:
+
+```bash
+social
+```
+
+This opens an interactive menu:
+- Starts with `Onboard` + help when not configured
+- After onboarding: auto-starts `Hatch UI` (`social hatch`)
+- Use `social onboard --no-hatch` to skip auto-start
+
+Use the top input as chat:
+- `doctor`
+- `status`
+- `config`
+- `logs limit 10`
+- `replay <log-id>`
+- `/ai show my profile` (uses configured Ollama/OpenAI provider)
+
+Keyboard:
+- `Enter`: execute/confirm
+- `e`: edit slots (`key=value`)
+- `a`: approve
+- `r`: reject
+- `d`: details
 
 ## Quick Start
 

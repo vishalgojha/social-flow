@@ -4,6 +4,7 @@ const { Command } = require('commander');
 const packageJson = require('../package.json');
 const { getBanner } = require('../lib/banner');
 const config = require('../lib/config');
+const { startLauncherMenu } = require('../lib/ui/launcher-menu');
 
 const program = new Command();
 
@@ -101,6 +102,8 @@ const chatCommands = require('../commands/chat');
 const gatewayCommands = require('../commands/gateway');
 const opsCommands = require('../commands/ops');
 const hubCommands = require('../commands/hub');
+const tuiCommands = require('../commands/tui');
+const onboardCommands = require('../commands/onboard');
 
 // Register command groups
 authCommands(program);
@@ -121,39 +124,55 @@ chatCommands(program);
 gatewayCommands(program);
 opsCommands(program);
 hubCommands(program);
+tuiCommands(program);
+onboardCommands(program);
 
 // Custom help
 program.on('--help', () => {
   const chalk = getChalkForBanner();
+  const cmd = (text) => `${chalk.cyan('social')} ${text}`;
   console.log('');
   console.log(chalk.yellow('Examples:'));
-  console.log('  $ social auth login              ' + chalk.gray('# Authenticate API access'));
-  console.log('  $ social query me                ' + chalk.gray('# Get your profile info'));
-  console.log('  $ social app info                ' + chalk.gray('# View app configuration'));
-  console.log('  $ social limits check            ' + chalk.gray('# Check rate limits'));
-  console.log('  $ social post create --message "Hello" --page PAGE_ID  ' + chalk.gray('# Create a Page post'));
-  console.log('  $ social whatsapp send --from PHONE_ID --to +15551234567 --body "Hello"  ' + chalk.gray('# Send a WhatsApp message'));
-  console.log('  $ social instagram accounts list ' + chalk.gray('# List connected IG accounts'));
-  console.log('  $ social utils config show       ' + chalk.gray('# Show config + defaults'));
-  console.log('  $ social doctor                  ' + chalk.gray('# Quick diagnostics (config + setup hints)'));
-  console.log('  $ social agent "fix whatsapp webhook for clientA"  ' + chalk.gray('# Plan first, then execute with confirmation'));
-  console.log('  $ social marketing accounts      ' + chalk.gray('# List ad accounts'));
-  console.log('  $ social accounts add clientA    ' + chalk.gray('# Create a profile'));
-  console.log('  $ social --profile clientA query me  ' + chalk.gray('# Use a profile (one-off)'));
-  console.log('  $ social batch run jobs.json     ' + chalk.gray('# Run a batch of tool jobs'));
-  console.log('  $ social ai "show my Facebook pages"  ' + chalk.gray('# Natural-language Meta command'));
-  console.log('  $ social chat                    ' + chalk.gray('# Conversational multi-turn AI assistant'));
-  console.log('  $ social gateway --open          ' + chalk.gray('# Social API Gateway web UI + API gateway'));
-  console.log('  $ social ops morning-run --all-workspaces --spend 320  ' + chalk.gray('# Morning agency ops checks + approvals'));
-  console.log('  $ social hub search ops          ' + chalk.gray('# Search hub packages (connectors/playbooks/skills)'));
-  console.log('  $ social hub trust show          ' + chalk.gray('# Inspect package trust policy and keys'));
+  console.log(`  ${cmd('auth login')}              ` + chalk.gray('# Authenticate API access'));
+  console.log(`  ${cmd('query me')}                ` + chalk.gray('# Get your profile info'));
+  console.log(`  ${cmd('app info')}                ` + chalk.gray('# View app configuration'));
+  console.log(`  ${cmd('limits check')}            ` + chalk.gray('# Check rate limits'));
+  console.log(`  ${cmd('post create --message "Hello" --page PAGE_ID')}  ` + chalk.gray('# Create a Page post'));
+  console.log(`  ${cmd('whatsapp send --from PHONE_ID --to +15551234567 --body "Hello"')}  ` + chalk.gray('# Send a WhatsApp message'));
+  console.log(`  ${cmd('instagram accounts list')} ` + chalk.gray('# List connected IG accounts'));
+  console.log(`  ${cmd('utils config show')}       ` + chalk.gray('# Show config + defaults'));
+  console.log(`  ${cmd('doctor')}                  ` + chalk.gray('# Quick diagnostics (config + setup hints)'));
+  console.log(`  ${cmd('onboard')}                 ` + chalk.gray('# Interactive onboarding wizard'));
+  console.log(`  ${cmd('agent "fix whatsapp webhook for clientA"')}  ` + chalk.gray('# Plan first, then execute with confirmation'));
+  console.log(`  ${cmd('marketing accounts')}      ` + chalk.gray('# List ad accounts'));
+  console.log(`  ${cmd('accounts add clientA')}    ` + chalk.gray('# Create a profile'));
+  console.log(`  ${cmd('--profile clientA query me')}  ` + chalk.gray('# Use a profile (one-off)'));
+  console.log(`  ${cmd('batch run jobs.json')}     ` + chalk.gray('# Run a batch of tool jobs'));
+  console.log(`  ${cmd('ai "show my Facebook pages"')}  ` + chalk.gray('# Natural-language Meta command'));
+  console.log(`  ${cmd('chat')}                    ` + chalk.gray('# Conversational multi-turn AI assistant'));
+  console.log(`  ${cmd('tui')}                     ` + chalk.gray('# Agentic terminal dashboard (chat + approvals + replay)'));
+  console.log(`  ${cmd('hatch')}                   ` + chalk.gray('# Alias of tui (terminal agent chat)'));
+  console.log(`  ${cmd('gateway --open')}          ` + chalk.gray('# Social API Gateway web UI + API gateway'));
+  console.log(`  ${cmd('ops morning-run --all-workspaces --spend 320')}  ` + chalk.gray('# Morning agency ops checks + approvals'));
+  console.log(`  ${cmd('hub search ops')}          ` + chalk.gray('# Search hub packages (connectors/playbooks/skills)'));
+  console.log(`  ${cmd('hub trust show')}          ` + chalk.gray('# Inspect package trust policy and keys'));
   console.log('');
   console.log(chalk.cyan('Documentation: https://github.com/vishalgojha/social-CLI'));
 });
 
-program.parse(process.argv);
+async function main() {
+  await program.parseAsync(process.argv);
 
-// Show help if no command provided
-if (!process.argv.slice(2).length) {
-  program.outputHelp();
+  // OpenClaw-style launcher when invoked with no command.
+  if (!process.argv.slice(2).length && process.stdout.isTTY) {
+    await startLauncherMenu(__filename);
+  } else if (!process.argv.slice(2).length) {
+    program.outputHelp();
+  }
 }
+
+main().catch((error) => {
+  // eslint-disable-next-line no-console
+  console.error(String((error && error.stack) || error));
+  process.exit(1);
+});
