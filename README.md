@@ -1,13 +1,14 @@
 # social-cli
 
-A CLI for Meta's APIs. For devs tired of token gymnastics.
+A social API CLI that works with Meta APIs (Facebook, Instagram, WhatsApp). For devs tired of token gymnastics.
 
 ```text
-    __  ___      __        ________    ________
-   /  |/  /___ _/ /_____ _/ ____/ /   /  _/ __ \
-  / /|_/ / __ `/ __/ __ `/ /   / /    / // / / /
- / /  / / /_/ / /_/ /_/ / /___/ /____/ // /_/ /
-/_/  /_/\__,_/\__/\__,_/\____/_____/___/\____/
+   _____            _       _      _    ____ _     ___
+  / ____|          (_)     | |    | |  / ___| |   |_ _|
+ | (___   ___   ___ _  __ _| | ___| | | |   | |    | |
+  \___ \ / _ \ / __| |/ _` | |/ __| | | |   | |    | |
+  ____) | (_) | (__| | (_| | | (__| | | |___| |___ | |
+ |_____/ \___/ \___|_|\__,_|_|\___|_|  \____|_____|___|
 ```
 
 Built by Chaos Craft Labs.
@@ -17,6 +18,30 @@ Built by Chaos Craft Labs.
 ```bash
 npm install -g @vishalgojha/social-cli
 social --help
+```
+
+## Local Dev + `npm link` (Windows)
+
+If `npm link` is failing on Windows/PowerShell, use this checklist:
+
+1. Use `npm.cmd` instead of `npm` when PowerShell blocks `.ps1` scripts.
+```powershell
+npm.cmd link
+```
+2. If you get `EPERM: operation not permitted, symlink`, enable one of:
+- Run terminal as Administrator.
+- Enable Windows Developer Mode (allows symlinks without elevation).
+3. If linking is still blocked, run locally without linking:
+```powershell
+node .\bin\social.js --help
+```
+4. If `social` is blocked in PowerShell, run:
+```powershell
+social.cmd --help
+```
+5. Optional fix for script policy (CurrentUser scope):
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 ```
 
 ## Releasing (Maintainers)

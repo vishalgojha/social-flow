@@ -247,6 +247,9 @@ function renderExecuted(executed) {
       }
     } else {
       appendMessage('system', `ERROR: ${row.tool}: ${row.error || 'failed'}`);
+      if (Array.isArray(row.suggestions) && row.suggestions.length) {
+        appendMessage('agent', `Suggestions:\n${row.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n')}`);
+      }
     }
   });
 }

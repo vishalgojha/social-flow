@@ -4,7 +4,7 @@
   "description": "A CLI for social API operations (Facebook, Instagram, WhatsApp).",
   "main": "index.js",
   "bin": {
-    "social": "bin/meta.js"
+    "social": "bin/social.js"
   },
   "scripts": {
     "test": "node test/run.js"

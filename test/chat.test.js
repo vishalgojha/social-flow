@@ -150,5 +150,52 @@ module.exports = [
       );
       assert.equal(suggestions.some((s) => s.toLowerCase().includes('rate usage looks high')), true);
     }
+  },
+  {
+    name: 'chat agent replaces stale pending actions for new deterministic command',
+    fn: async () => {
+      const oldOpenAI = process.env.OPENAI_API_KEY;
+      const oldMeta = process.env.META_AI_KEY;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.META_AI_KEY;
+      try {
+        const ctx = new ConversationContext();
+        ctx.setPendingActions([{ tool: 'query_me', params: {}, description: 'Old pending' }]);
+        const agent = new AutonomousAgent({
+          context: ctx,
+          config: { getDefaultApi: () => 'facebook' },
+          options: {}
+        });
+
+        const res = await agent.process('social auth status');
+        assert.equal(res.actions.length, 1);
+        assert.equal(res.actions[0].tool, 'auth.status');
+        assert.equal(res.needsInput, false);
+        assert.equal(ctx.hasPendingActions(), false);
+      } finally {
+        if (oldOpenAI) process.env.OPENAI_API_KEY = oldOpenAI;
+        if (oldMeta) process.env.META_AI_KEY = oldMeta;
+      }
+    }
+  },
+  {
+    name: 'chat agent failure advice maps expired token to re-login guidance',
+    fn: () => {
+      const ctx = new ConversationContext();
+      const agent = new AutonomousAgent({
+        context: ctx,
+        config: { getDefaultApi: () => 'facebook' },
+        options: {}
+      });
+
+      const advice = agent.failureAdvice(
+        { tool: 'query_me', params: { api: 'facebook' } },
+        new Error('Meta API error 190 (463): Error validating access token: Session has expired')
+      );
+
+      assert.equal(advice.message.toLowerCase().includes('social auth login -a facebook'), true);
+      assert.equal(Array.isArray(advice.suggestions), true);
+      assert.equal(advice.suggestions.length > 0, true);
+    }
   }
 ];

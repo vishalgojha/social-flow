@@ -74,7 +74,7 @@ if (shouldShowBanner && !process.argv.includes('--no-banner')) {
 
 program
   .name('social')
-  .description('A CLI for Meta\'s APIs. For devs tired of token gymnastics.')
+  .description('Social API CLI for Meta APIs (Facebook, Instagram, WhatsApp).')
   .option('--profile <name>', 'Use a profile (multi-account). Does not persist; use `social accounts switch` to persist.')
   .option('--no-banner', 'Disable the startup banner')
   .option('--banner-style <style>', 'Banner style: classic|slant|clean|compact', process.env.SOCIAL_CLI_BANNER_STYLE || process.env.META_CLI_BANNER_STYLE || 'classic')
@@ -123,7 +123,7 @@ program.on('--help', () => {
   const chalk = getChalkForBanner();
   console.log('');
   console.log(chalk.yellow('Examples:'));
-  console.log('  $ social auth login              ' + chalk.gray('# Authenticate with Meta'));
+  console.log('  $ social auth login              ' + chalk.gray('# Authenticate API access'));
   console.log('  $ social query me                ' + chalk.gray('# Get your profile info'));
   console.log('  $ social app info                ' + chalk.gray('# View app configuration'));
   console.log('  $ social limits check            ' + chalk.gray('# Check rate limits'));

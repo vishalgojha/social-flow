@@ -123,5 +123,52 @@ module.exports = [
         if (oldMeta) process.env.META_AI_KEY = oldMeta;
       }
     }
+  },
+  {
+    name: 'gateway chat deterministic command executes immediately without pending confirmation',
+    fn: async () => {
+      const oldHome = process.env.META_CLI_HOME;
+      process.env.META_CLI_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-gw-test-'));
+      const oldOpenAI = process.env.OPENAI_API_KEY;
+      const oldMeta = process.env.META_AI_KEY;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.META_AI_KEY;
+
+      const server = createGatewayServer({ host: '127.0.0.1', port: 0 });
+      try {
+        await server.start();
+
+        const startRes = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/chat/start',
+          body: {}
+        });
+        assert.equal(startRes.status, 200);
+        assert.equal(Boolean(startRes.data.sessionId), true);
+
+        const msgRes = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/chat/message',
+          body: {
+            sessionId: startRes.data.sessionId,
+            message: 'social auth status'
+          }
+        });
+
+        assert.equal(msgRes.status, 200);
+        assert.equal(msgRes.data.ok, true);
+        assert.equal(Array.isArray(msgRes.data.executed), true);
+        assert.equal(msgRes.data.executed.length, 1);
+        assert.equal(Array.isArray(msgRes.data.pendingActions), true);
+        assert.equal(msgRes.data.pendingActions.length, 0);
+      } finally {
+        await server.stop();
+        process.env.META_CLI_HOME = oldHome;
+        if (oldOpenAI) process.env.OPENAI_API_KEY = oldOpenAI;
+        if (oldMeta) process.env.META_AI_KEY = oldMeta;
+      }
+    }
   }
 ];

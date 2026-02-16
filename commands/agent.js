@@ -9,7 +9,7 @@ function registerAgentCommands(program) {
     .argument('[intent...]', 'Intent to plan+execute (e.g. "fix whatsapp webhook for clientA")')
     .option('--scope <scope>', 'Memory scope (overrides auto-detection)')
     .option('--no-memory', 'Disable auto-loading/saving memory')
-    .option('--provider <provider>', 'LLM provider: openai|anthropic|gemini', 'openai')
+    .option('--provider <provider>', 'LLM provider: openai|anthropic|openrouter|xai|ollama|gemini', 'openai')
     .option('--model <model>', 'LLM model (provider-specific)')
     .option('--json', 'JSON output (plan + results)')
     .option('--yes', 'Auto-approve plan (still prompts for high-risk steps)')
@@ -80,4 +80,3 @@ function registerAgentCommands(program) {
 }
 
 module.exports = registerAgentCommands;
-
