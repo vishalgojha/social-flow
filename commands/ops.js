@@ -57,6 +57,7 @@ function toIsoOrFallback(value, fallbackIso) {
 }
 
 function buildHandoffDoc({
+  template,
   workspace,
   studioUrl,
   gatewayApiKey,
@@ -67,7 +68,9 @@ function buildHandoffDoc({
   const ws = workspace || 'default';
   const operator = operatorId || '<operator_id>';
   const keyText = gatewayApiKey || '<set_gateway_api_key>';
-  return [
+  const templateName = String(template || 'agency').trim().toLowerCase();
+
+  const common = [
     `# Social CLI Agency Handoff - ${ws}`,
     '',
     `Generated: ${generatedAt}`,
@@ -122,7 +125,60 @@ function buildHandoffDoc({
     '',
     '## Audit & Compliance',
     `- CLI: \`social ops activity list --workspace ${ws} --limit 200\``,
-    `- Studio: Ops -> Team Activity -> Export JSON/CSV`,
+    `- Studio: Ops -> Team Activity -> Export JSON/CSV`
+  ];
+
+  if (templateName === 'simple') {
+    return [
+      ...common.slice(0, 7),
+      '',
+      '## Fast Start',
+      `1. \`social accounts switch ${ws}\``,
+      `2. \`social ops user set ${operator} --name "<your_name>"\``,
+      `3. \`social ops morning-run --workspace ${ws} --spend 0\``,
+      `4. \`social ops approvals list --workspace ${ws} --open\``,
+      '',
+      '## Studio',
+      `- URL: \`${studioUrl}\``,
+      `- API key: \`${keyText}\``,
+      '',
+      '## Need Help',
+      '- Run `social doctor` for setup diagnostics.',
+      '- Run `social --help` for command list.',
+      ''
+    ].join('\n');
+  }
+
+  if (templateName === 'enterprise') {
+    return [
+      ...common,
+      '',
+      '## Approval Matrix (Recommended)',
+      '- Viewer: read-only, no approvals.',
+      '- Analyst: read + write notes, no approvals.',
+      '- Operator: can approve/execute daily ops actions.',
+      '- Owner: full admin controls including role changes.',
+      '',
+      '## Incident Escalation',
+      `1. Detect issue: \`social ops alerts list --workspace ${ws} --open\``,
+      `2. Pause risky actions: \`social ops guard mode approval --workspace ${ws}\``,
+      `3. Assign owner/operator and log activity`,
+      `4. Track closure in outcomes and action log`,
+      '',
+      '## Audit Cadence',
+      '- Daily: approvals + alerts review.',
+      '- Weekly: export team activity and outcomes.',
+      '- Monthly: role and policy review (least privilege).',
+      '',
+      '## Compliance Export Commands',
+      `- \`social ops activity list --workspace ${ws} --limit 500 --json\``,
+      `- Studio export: Team Activity -> Export CSV/JSON`,
+      ''
+    ].join('\n');
+  }
+
+  return [
+    ...common,
     ''
   ].join('\n');
 }
@@ -683,6 +739,7 @@ function registerOpsCommands(program) {
     .description('Generate a one-file team onboarding and runbook document for a workspace')
     .option('--workspace <name>', 'Workspace/profile name')
     .option('--out <file>', 'Output markdown file path')
+    .option('--template <name>', 'Template: simple|agency|enterprise', 'agency')
     .option('--studio-url <url>', 'Studio URL', 'http://127.0.0.1:1310')
     .option('--gateway-api-key <key>', 'Gateway API key placeholder/value')
     .option('--operator-id <id>', 'Default operator id placeholder')
@@ -692,11 +749,18 @@ function registerOpsCommands(program) {
       const ws = workspaceFrom(options);
       rbac.assertCan({ workspace: ws, action: 'read' });
       const suggestedRunAt = toIsoOrFallback(options.runAt, new Date().toISOString());
+      const template = String(options.template || 'agency').trim().toLowerCase();
+      const allowedTemplates = new Set(['simple', 'agency', 'enterprise']);
+      if (!allowedTemplates.has(template)) {
+        console.error(chalk.red('\nX Invalid template. Use: simple, agency, enterprise\n'));
+        process.exit(1);
+      }
       const outputPath = path.resolve(
         process.cwd(),
         String(options.out || `handoff-${ws}.md`)
       );
       const doc = buildHandoffDoc({
+        template,
         workspace: ws,
         studioUrl: String(options.studioUrl || 'http://127.0.0.1:1310').trim(),
         gatewayApiKey: String(options.gatewayApiKey || '').trim(),
@@ -709,6 +773,7 @@ function registerOpsCommands(program) {
         console.log(JSON.stringify({
           ok: true,
           workspace: ws,
+          template,
           output: outputPath,
           bytes: Buffer.byteLength(doc, 'utf8')
         }, null, 2));

@@ -174,6 +174,7 @@ program.on('--help', () => {
   console.log(`  ${cmd('policy preflight "send whatsapp promo"')}  ` + chalk.gray('# Region-aware policy checks before execution'));
   console.log(`  ${cmd('ops morning-run --all-workspaces --spend 320')}  ` + chalk.gray('# Morning agency ops checks + approvals'));
   console.log(`  ${cmd('ops handoff --workspace clientA --out ./handoff-clientA.md')}  ` + chalk.gray('# Generate team onboarding + runbook handoff'));
+  console.log(`  ${cmd('ops handoff --workspace clientA --template enterprise --out ./handoff-clientA-enterprise.md')}  ` + chalk.gray('# Generate enterprise handoff template'));
   console.log(`  ${cmd('hub search ops')}          ` + chalk.gray('# Search hub packages (connectors/playbooks/skills)'));
   console.log(`  ${cmd('hub trust show')}          ` + chalk.gray('# Inspect package trust policy and keys'));
   console.log('');

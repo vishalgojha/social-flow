@@ -204,6 +204,7 @@ Generate a one-file onboarding/runbook handoff for your team:
 
 ```bash
 social ops handoff --workspace clientA --out ./handoff-clientA.md
+social ops handoff --workspace clientA --template enterprise --out ./handoff-clientA-enterprise.md
 ```
 
 ## Agentic TUI
