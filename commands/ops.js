@@ -854,14 +854,43 @@ function registerOpsCommands(program) {
       const filtered = options.open
         ? rows.filter((x) => x.status === 'active' && (!x.expiresAt || Date.parse(x.expiresAt) > now))
         : rows;
+      const safe = filtered.map((x) => storage.sanitizeInvite(x, false));
       if (options.json) {
-        console.log(JSON.stringify({ workspace: ws, invites: filtered }, null, 2));
+        console.log(JSON.stringify({ workspace: ws, invites: safe }, null, 2));
         return;
       }
       printRows(
         `Invites (${ws})`,
-        filtered.map((x) => `${x.id} | ${x.role} | ${x.status} | expires=${x.expiresAt}${x.acceptUrl ? ` | link=${x.acceptUrl}` : ''}`)
+        safe.map((x) => `${x.id} | ${x.role} | ${x.status} | expires=${x.expiresAt} | token=${x.tokenMasked}`)
       );
+    });
+
+  invite
+    .command('resend')
+    .description('Rotate invite token and return a new one-time token/link')
+    .requiredOption('--id <id>', 'Invite id')
+    .option('--workspace <name>', 'Workspace/profile name')
+    .option('--expires-in <hours>', 'Hours until invite expires', '72')
+    .option('--base-url <url>', 'Optional studio URL to generate invite link')
+    .option('--json', 'Output JSON')
+    .action((options) => {
+      const ws = workspaceFrom(options);
+      const actor = rbac.currentUser();
+      rbac.assertCan({ workspace: ws, action: 'admin', user: actor });
+      const created = storage.rotateInvite({
+        id: options.id,
+        actor,
+        baseUrl: String(options.baseUrl || '').trim(),
+        expiresInHours: parseNumber(options.expiresIn, 72)
+      });
+      if (options.json) {
+        console.log(JSON.stringify({ ok: true, invite: storage.sanitizeInvite(created, true) }, null, 2));
+        return;
+      }
+      console.log(chalk.green(`\nOK Invite rotated: ${created.id}`));
+      console.log(chalk.gray(`Token: ${created.token}`));
+      if (created.acceptUrl) console.log(chalk.gray(`Link:  ${created.acceptUrl}`));
+      console.log(chalk.gray(`Accept: social ops invite accept ${created.token} --user <user-id>\n`));
     });
 
   invite

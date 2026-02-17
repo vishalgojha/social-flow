@@ -558,12 +558,33 @@ module.exports = [
         assert.equal(inviteList.data.ok, true);
         assert.equal(Array.isArray(inviteList.data.invites), true);
         assert.equal(inviteList.data.invites.length > 0, true);
+        assert.equal(String(inviteList.data.invites[0].token || ''), '');
+
+        const inviteResend = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/team/invites/resend',
+          body: { workspace: 'default', id: inviteCreate.data.invite.id, baseUrl: 'http://127.0.0.1:1310' }
+        });
+        assert.equal(inviteResend.status, 200);
+        assert.equal(inviteResend.data.ok, true);
+        assert.equal(typeof inviteResend.data.invite.token, 'string');
+        assert.equal(String(inviteResend.data.invite.acceptUrl || '').includes('?invite='), true);
+
+        const inviteAcceptOld = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/team/invites/accept',
+          body: { token: inviteCreate.data.invite.token, user: 'invite-user-old' }
+        });
+        assert.equal(inviteAcceptOld.status, 400);
+        assert.equal(inviteAcceptOld.data.ok, false);
 
         const inviteAccept = await requestJson({
           port: server.port,
           method: 'POST',
           pathName: '/api/team/invites/accept',
-          body: { token: inviteCreate.data.invite.token, user: 'invite-user' }
+          body: { token: inviteResend.data.invite.token, user: 'invite-user' }
         });
         assert.equal(inviteAccept.status, 200);
         assert.equal(inviteAccept.data.ok, true);

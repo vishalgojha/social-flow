@@ -768,10 +768,10 @@ function renderTeamInvites() {
       <td>${escapeHtml(x.role || '')}</td>
       <td>${escapeHtml(x.status || '')}</td>
       <td>${escapeHtml(fmtTime(x.expiresAt))}</td>
-      <td class="mono">${escapeHtml(short(x.token || '', 24))}</td>
+      <td class="mono">${escapeHtml(short(x.tokenMasked || '', 24))}</td>
       <td>
-        <button class="ghost-btn small js-team-invite-copy" data-token="${escapeHtml(x.token || '')}">Copy Accept</button>
-        <button class="ghost-btn small js-team-invite-copy-link" data-link="${escapeHtml(String(x.acceptUrl || (x.token ? `${window.location.origin}/?invite=${encodeURIComponent(x.token)}` : '')))}">Copy Link</button>
+        <button class="ghost-btn small js-team-invite-resend" data-id="${escapeHtml(x.id || '')}">Resend Link</button>
+        <button class="ghost-btn small js-team-invite-copy-link" data-link="${escapeHtml(String(x.acceptUrl || ''))}">Copy Link</button>
         ${String(x.status || '') === 'active' ? `<button class="ghost-btn small js-team-invite-revoke" data-id="${escapeHtml(x.id || '')}">Revoke</button>` : ''}
       </td>
     </tr>
@@ -876,7 +876,32 @@ async function createTeamInviteFromUi() {
     method: 'POST',
     body: { workspace: state.workspace, role, expiresInHours, baseUrl: window.location.origin }
   });
+  const link = String(res.invite && res.invite.acceptUrl || '').trim();
+  const token = String(res.invite && res.invite.token || '').trim();
   appendMessage('system', `Invite created (${role}).`);
+  if (link) appendMessage('system', `Share link (one-time): ${link}`);
+  if (token) appendMessage('system', `Accept command (one-time): social ops invite accept ${token} --user <user-id>`);
+  state.team.invites = Array.isArray(res.invites) ? res.invites : state.team.invites;
+  renderTeamInvites();
+}
+
+async function resendTeamInviteFromUi(id) {
+  const inviteId = String(id || '').trim();
+  if (!inviteId) return;
+  const res = await api('/api/team/invites/resend', {
+    method: 'POST',
+    body: {
+      workspace: state.workspace,
+      id: inviteId,
+      baseUrl: window.location.origin,
+      expiresInHours: Number((els.teamInviteExpiresInput && els.teamInviteExpiresInput.value) || 72)
+    }
+  });
+  const link = String(res.invite && res.invite.acceptUrl || '').trim();
+  const token = String(res.invite && res.invite.token || '').trim();
+  appendMessage('system', `Invite resent: ${inviteId}`);
+  if (link) appendMessage('system', `Share link (one-time): ${link}`);
+  if (token) appendMessage('system', `Accept command (one-time): social ops invite accept ${token} --user <user-id>`);
   state.team.invites = Array.isArray(res.invites) ? res.invites : state.team.invites;
   renderTeamInvites();
 }
@@ -1939,16 +1964,6 @@ function wireEvents() {
         appendMessage('system', `Role updated: ${user} => ${role}`);
         await refreshTeamRoles();
         await refreshTeamStatus();
-      } else if (btn.classList.contains('js-team-invite-copy')) {
-        const token = String(btn.getAttribute('data-token') || '').trim();
-        if (!token) return;
-        const cmd = `social ops invite accept ${token} --user <user-id>`;
-        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-          await navigator.clipboard.writeText(cmd);
-          appendMessage('system', 'Invite accept command copied.');
-        } else {
-          appendMessage('system', cmd);
-        }
       } else if (btn.classList.contains('js-team-invite-revoke')) {
         const id = String(btn.getAttribute('data-id') || '').trim();
         if (!id) return;
@@ -1958,9 +1973,16 @@ function wireEvents() {
         });
         appendMessage('system', `Invite revoked: ${id}`);
         await refreshTeamInvites();
+      } else if (btn.classList.contains('js-team-invite-resend')) {
+        const id = String(btn.getAttribute('data-id') || '').trim();
+        if (!id) return;
+        await resendTeamInviteFromUi(id);
       } else if (btn.classList.contains('js-team-invite-copy-link')) {
         const link = String(btn.getAttribute('data-link') || '').trim();
-        if (!link) return;
+        if (!link) {
+          appendMessage('system', 'Link hidden after creation. Use Resend Link to generate a new one-time link.');
+          return;
+        }
         if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
           await navigator.clipboard.writeText(link);
           appendMessage('system', 'Invite link copied.');

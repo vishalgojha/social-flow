@@ -207,6 +207,7 @@ social ops invite create --workspace clientA --role operator --expires-in 72
 social ops invite list --workspace clientA --open
 social ops invite accept <TOKEN> --user alice
 social ops invite create --workspace clientA --role operator --base-url http://127.0.0.1:1310
+social ops invite resend --workspace clientA --id <INVITE_ID> --base-url http://127.0.0.1:1310
 ```
 
 Generate a one-file onboarding/runbook handoff for your team:
@@ -634,6 +635,7 @@ Gateway endpoints:
 - `GET /api/team/roles?workspace=<ws>` (list users + effective role for workspace)
 - `GET /api/team/invites?workspace=<ws>&open=1` (list workspace invites)
 - `POST /api/team/invites` (create invite)
+- `POST /api/team/invites/resend` (rotate invite token and generate new link)
 - `POST /api/team/invites/revoke` (revoke invite)
 - `POST /api/team/invites/accept` (accept invite token)
 - `GET /api/team/activity/export?format=json|csv&workspace=<ws>&actor=<id>&from=<ISO>&to=<ISO>&limit=<n>`
@@ -658,6 +660,7 @@ Studio now shows download + copy-path actions for generated handoff files.
 `Settings -> Team Management` also supports invite creation + revoke + copy accept command.
 `Settings -> Team Management` includes an `Accept Invite` form (token + user ID) for one-click onboarding.
 Invite links are supported (`?invite=<token>`), and Studio auto-prefills the token from URL.
+Invite tokens are one-time-visible (shown at create/resend only; list views show masked tokens).
 
 Studio shortcuts:
 

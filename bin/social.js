@@ -178,6 +178,7 @@ program.on('--help', () => {
   console.log(`  ${cmd('ops handoff pack --workspace clientA --out-dir ./handoff-clientA --template enterprise')}  ` + chalk.gray('# Generate full agency handoff pack'));
   console.log(`  ${cmd('ops invite create --workspace clientA --role operator --expires-in 72')}  ` + chalk.gray('# Create invite token for onboarding'));
   console.log(`  ${cmd('ops invite create --workspace clientA --role operator --base-url http://127.0.0.1:1310')}  ` + chalk.gray('# Create shareable Studio invite link'));
+  console.log(`  ${cmd('ops invite resend --workspace clientA --id <INVITE_ID> --base-url http://127.0.0.1:1310')}  ` + chalk.gray('# Rotate invite token and issue new link'));
   console.log(`  ${cmd('hub search ops')}          ` + chalk.gray('# Search hub packages (connectors/playbooks/skills)'));
   console.log(`  ${cmd('hub trust show')}          ` + chalk.gray('# Inspect package trust policy and keys'));
   console.log('');
