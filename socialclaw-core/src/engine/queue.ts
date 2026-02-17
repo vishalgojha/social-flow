@@ -19,6 +19,7 @@ export interface WorkflowJobInput {
   tenantId: string;
   workflowId: string;
   workflowVersion: number;
+  triggerType: string;
   triggerPayload: Record<string, unknown>;
 }
 

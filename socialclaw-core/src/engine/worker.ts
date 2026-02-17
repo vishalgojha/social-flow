@@ -3,7 +3,13 @@ import IORedis from 'ioredis';
 import { env } from '../config/env';
 import { workflowExecutionCounter, workflowLatencyHistogram } from '../observability/metrics';
 import { logger } from '../observability/logger';
-import { appendExecutionEvent } from '../services/repository';
+import {
+  appendExecutionEvent,
+  markExecutionFinished,
+  markExecutionRunning,
+  readWorkflowVersionDefinition
+} from '../services/repository';
+import { runDeterministicWorkflow } from './runtime';
 
 const connection = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
 
@@ -14,28 +20,58 @@ async function execute(job: Job): Promise<void> {
     tenantId: string;
     workflowId: string;
     workflowVersion: number;
+    triggerType: string;
     triggerPayload: Record<string, unknown>;
   };
+
+  await markExecutionRunning({
+    tenantId: payload.tenantId,
+    executionId: payload.executionId,
+    attempts: Number(job.attemptsStarted || 1)
+  });
 
   await appendExecutionEvent({
     tenantId: payload.tenantId,
     executionId: payload.executionId,
     level: 'info',
     eventType: 'execution.started',
-    payload: { attempt: job.attemptsStarted }
+    payload: { attempt: job.attemptsStarted, triggerType: payload.triggerType }
   });
 
-  // TODO: replace with deterministic node traversal engine.
-  if (payload.triggerPayload && payload.triggerPayload['forceFail']) {
-    throw new Error('forced_execution_failure');
-  }
+  const workflow = await readWorkflowVersionDefinition({
+    tenantId: payload.tenantId,
+    workflowId: payload.workflowId,
+    version: payload.workflowVersion
+  });
+  if (!workflow) throw new Error('workflow_version_not_found');
+
+  const out = await runDeterministicWorkflow({
+    workflow,
+    triggerType: payload.triggerType,
+    triggerPayload: payload.triggerPayload || {},
+    executionId: payload.executionId,
+    maxActions: 200
+  }, {
+    onNodeEvent: async (level, eventType, details) => appendExecutionEvent({
+      tenantId: payload.tenantId,
+      executionId: payload.executionId,
+      level,
+      eventType,
+      payload: details
+    })
+  });
 
   await appendExecutionEvent({
     tenantId: payload.tenantId,
     executionId: payload.executionId,
     level: 'info',
     eventType: 'execution.completed',
-    payload: { result: 'ok' }
+    payload: { result: 'ok', actionsExecuted: out.actionsExecuted }
+  });
+  await markExecutionFinished({
+    tenantId: payload.tenantId,
+    executionId: payload.executionId,
+    status: 'succeeded'
   });
 
   workflowExecutionCounter.inc({ status: 'succeeded' });
@@ -55,12 +91,20 @@ new Worker(
     workflowExecutionCounter.inc({ status: 'failed' });
     logger.error({ jobId: job?.id, err: err?.message }, 'workflow job failed');
     if (data.tenantId && data.executionId) {
+      const message = String(err?.message || 'unknown_error');
+      const blocked = message.includes('execution_cap_exceeded') || message.includes('unsupported_action');
       await appendExecutionEvent({
         tenantId: data.tenantId,
         executionId: data.executionId,
         level: 'error',
         eventType: 'execution.failed',
-        payload: { message: String(err?.message || 'unknown_error') }
+        payload: { message }
+      });
+      await markExecutionFinished({
+        tenantId: data.tenantId,
+        executionId: data.executionId,
+        status: blocked ? 'blocked' : 'failed',
+        errorMessage: message
       });
     }
   });

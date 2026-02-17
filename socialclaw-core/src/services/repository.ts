@@ -106,6 +106,17 @@ export async function readExecution(executionId: string, tenantId: string) {
   return out.rows[0] || null;
 }
 
+export async function readExecutionTimeline(executionId: string, tenantId: string) {
+  const out = await query(
+    `SELECT level, event_type, payload, created_at
+     FROM workflow_event_logs
+     WHERE execution_id=$1 AND tenant_id=$2
+     ORDER BY created_at ASC`,
+    [executionId, tenantId]
+  );
+  return out.rows;
+}
+
 export async function appendExecutionEvent(input: {
   tenantId: string;
   executionId: string;
@@ -117,5 +128,54 @@ export async function appendExecutionEvent(input: {
     `INSERT INTO workflow_event_logs(tenant_id, execution_id, level, event_type, payload)
      VALUES($1,$2,$3,$4,$5::jsonb)`,
     [input.tenantId, input.executionId, input.level, input.eventType, JSON.stringify(input.payload)]
+  );
+}
+
+export async function resolveApprovedWorkflowVersion(input: { tenantId: string; workflowId: string }) {
+  const out = await query<{ active_version: number | null; status: string }>(
+    `SELECT active_version, status
+     FROM workflow_definitions
+     WHERE id=$1 AND tenant_id=$2`,
+    [input.workflowId, input.tenantId]
+  );
+  const row = out.rows[0];
+  if (!row) throw new Error('workflow_not_found');
+  if (row.status !== 'approved') throw new Error('workflow_not_approved');
+  if (!Number.isFinite(Number(row.active_version || 0)) || Number(row.active_version || 0) < 1) {
+    throw new Error('workflow_missing_active_version');
+  }
+  return Number(row.active_version);
+}
+
+export async function readWorkflowVersionDefinition(input: { tenantId: string; workflowId: string; version: number }) {
+  const out = await query<{ definition: WorkflowDefinition }>(
+    `SELECT definition
+     FROM workflow_versions
+     WHERE workflow_id=$1 AND tenant_id=$2 AND version=$3`,
+    [input.workflowId, input.tenantId, input.version]
+  );
+  return out.rows[0]?.definition || null;
+}
+
+export async function markExecutionRunning(input: { tenantId: string; executionId: string; attempts: number }) {
+  await query(
+    `UPDATE workflow_executions
+     SET status='running', started_at=COALESCE(started_at, NOW()), attempts=$3
+     WHERE id=$1 AND tenant_id=$2`,
+    [input.executionId, input.tenantId, input.attempts]
+  );
+}
+
+export async function markExecutionFinished(input: {
+  tenantId: string;
+  executionId: string;
+  status: 'succeeded' | 'failed' | 'blocked';
+  errorMessage?: string;
+}) {
+  await query(
+    `UPDATE workflow_executions
+     SET status=$3, finished_at=NOW(), error_message=$4
+     WHERE id=$1 AND tenant_id=$2`,
+    [input.executionId, input.tenantId, input.status, input.errorMessage || null]
   );
 }
