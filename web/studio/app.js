@@ -11,6 +11,10 @@ const state = {
     integration: null,
     doctor: null
   },
+  regionPolicy: {
+    region: null,
+    preflight: null
+  },
   opsSnapshot: null,
   sources: [],
   guardPolicy: null,
@@ -198,7 +202,14 @@ const els = {
   wabaConnectBtn: document.getElementById('wabaConnectBtn'),
   wabaStatusBtn: document.getElementById('wabaStatusBtn'),
   wabaDisconnectBtn: document.getElementById('wabaDisconnectBtn'),
-  wabaDoctorCards: document.getElementById('wabaDoctorCards')
+  wabaDoctorCards: document.getElementById('wabaDoctorCards'),
+  regionPolicyBadge: document.getElementById('regionPolicyBadge'),
+  regionCountryInput: document.getElementById('regionCountryInput'),
+  regionTimezoneInput: document.getElementById('regionTimezoneInput'),
+  regionModeInput: document.getElementById('regionModeInput'),
+  regionPolicySaveBtn: document.getElementById('regionPolicySaveBtn'),
+  regionPolicyCheckBtn: document.getElementById('regionPolicyCheckBtn'),
+  regionPolicySummary: document.getElementById('regionPolicySummary')
 };
 
 function nowTime() {
@@ -537,6 +548,83 @@ async function disconnectWabaFromUi() {
     appendMessage('system', st('waba_disconnected'));
   } catch (error) {
     appendMessage('system', st('waba_disconnect_failed', { error: error.message }));
+  }
+}
+
+function renderRegionPolicy() {
+  const region = state.regionPolicy.region || {};
+  const report = state.regionPolicy.preflight || null;
+  if (els.regionCountryInput && !els.regionCountryInput.value) els.regionCountryInput.value = region.country || '';
+  if (els.regionTimezoneInput && !els.regionTimezoneInput.value) els.regionTimezoneInput.value = region.timezone || '';
+  if (els.regionModeInput) els.regionModeInput.value = region.regulatoryMode || 'standard';
+  if (els.regionPolicyBadge) {
+    let cls = 'badge-warn';
+    let label = 'CHECK NEEDED';
+    if (report) {
+      if (report.summary && Number(report.summary.blockers || 0) > 0) {
+        cls = 'badge-error';
+        label = 'BLOCKED';
+      } else if (report.summary && Number(report.summary.warnings || 0) > 0) {
+        cls = 'badge-warn';
+        label = 'WARNINGS';
+      } else {
+        cls = 'badge-ok';
+        label = 'READY';
+      }
+    }
+    els.regionPolicyBadge.classList.remove('badge-ok', 'badge-warn', 'badge-error');
+    els.regionPolicyBadge.classList.add(cls);
+    els.regionPolicyBadge.textContent = label;
+  }
+  if (els.regionPolicySummary) {
+    if (!report) {
+      els.regionPolicySummary.textContent = 'No policy check yet.';
+    } else if (report.summary.blockers > 0) {
+      els.regionPolicySummary.textContent = `Blocked: ${report.summary.blockers} blocker(s), ${report.summary.warnings} warning(s).`;
+    } else if (report.summary.warnings > 0) {
+      els.regionPolicySummary.textContent = `Caution: ${report.summary.warnings} warning(s).`;
+    } else {
+      els.regionPolicySummary.textContent = 'Policy preflight passed.';
+    }
+  }
+}
+
+async function refreshRegionPolicyStatus() {
+  try {
+    const res = await api('/api/status');
+    state.regionPolicy.region = (res.config && res.config.region) || null;
+    renderRegionPolicy();
+  } catch (error) {
+    appendMessage('system', `Region policy status error: ${error.message}`);
+  }
+}
+
+async function saveRegionPolicy() {
+  const body = {
+    country: String((els.regionCountryInput && els.regionCountryInput.value) || '').trim().toUpperCase(),
+    timezone: String((els.regionTimezoneInput && els.regionTimezoneInput.value) || '').trim(),
+    regulatoryMode: String((els.regionModeInput && els.regionModeInput.value) || 'standard').trim().toLowerCase()
+  };
+  try {
+    const res = await api('/api/policy/region', { method: 'POST', body });
+    state.regionPolicy.region = res.region || null;
+    renderRegionPolicy();
+    appendMessage('system', 'Region policy settings saved.');
+  } catch (error) {
+    appendMessage('system', `Region policy save failed: ${error.message}`);
+  }
+}
+
+async function runRegionPreflight() {
+  try {
+    const res = await api('/api/policy/preflight', {
+      method: 'POST',
+      body: { intent: 'send whatsapp promo message' }
+    });
+    state.regionPolicy.preflight = res.report || null;
+    renderRegionPolicy();
+  } catch (error) {
+    appendMessage('system', `Region preflight failed: ${error.message}`);
   }
 }
 
@@ -1515,6 +1603,16 @@ function wireEvents() {
       void disconnectWabaFromUi();
     });
   }
+  if (els.regionPolicySaveBtn) {
+    els.regionPolicySaveBtn.addEventListener('click', () => {
+      void saveRegionPolicy();
+    });
+  }
+  if (els.regionPolicyCheckBtn) {
+    els.regionPolicyCheckBtn.addEventListener('click', () => {
+      void runRegionPreflight();
+    });
+  }
 }
 
 async function init() {
@@ -1542,6 +1640,8 @@ async function init() {
   await startSession('');
   await refreshOps();
   await refreshWabaStatus();
+  await refreshRegionPolicyStatus();
+  await runRegionPreflight();
   setActiveView('chat');
 }
 

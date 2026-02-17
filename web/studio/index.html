@@ -513,6 +513,34 @@
           </div>
           <div id="wabaDoctorCards" class="doctor-cards"></div>
         </article>
+        <article class="data-card waba-card">
+          <div class="panel-head">
+            <p class="section-label">Region Policy</p>
+            <span id="regionPolicyBadge" class="badge badge-warn">CHECK NEEDED</span>
+          </div>
+          <div class="settings-list waba-form">
+            <label class="setting-item setting-select-row">
+              <span>Country</span>
+              <input id="regionCountryInput" type="text" class="setting-input" placeholder="IN / US / DE" />
+            </label>
+            <label class="setting-item setting-select-row">
+              <span>Timezone</span>
+              <input id="regionTimezoneInput" type="text" class="setting-input" placeholder="Asia/Kolkata" />
+            </label>
+            <label class="setting-item setting-select-row">
+              <span>Mode</span>
+              <select id="regionModeInput" class="setting-select">
+                <option value="standard">standard</option>
+                <option value="strict">strict</option>
+              </select>
+            </label>
+          </div>
+          <div class="plan-actions">
+            <button id="regionPolicySaveBtn" class="ghost-btn small">Save Region</button>
+            <button id="regionPolicyCheckBtn" class="ghost-btn small">Run Preflight</button>
+          </div>
+          <p id="regionPolicySummary" class="muted">No policy check yet.</p>
+        </article>
       </section>
     </section>
   </main>

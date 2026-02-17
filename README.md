@@ -166,6 +166,7 @@ This includes API version, default IDs, and tokens. The CLI never prints full to
 - `gateway`: localhost web UI + API gateway for chat/agent workflows
 - `studio`: alias command to launch Social Studio web UI (`social studio`)
 - `integrations`: guided external integrations (WABA one-click style onboarding)
+- `policy`: region-aware policy config and preflight checks
 - `ops`: morning operations workflow, alerts, approvals, scheduler, roles, knowledge sources
 - `hub`: package hub for connectors, playbooks, and agent skills
 - `accounts`: manage multiple profiles (multi-client)
@@ -273,6 +274,21 @@ Useful commands:
 social integrations status waba --profile clientA
 social integrations disconnect waba --profile clientA
 social integrations disconnect waba --profile clientA --clear-token
+```
+
+## Region Policy Preflight (Global Readiness MVP)
+
+Configure workspace region:
+
+```bash
+social policy region set --country IN --timezone Asia/Kolkata --mode strict
+social policy region show
+```
+
+Run policy preflight before high-risk actions:
+
+```bash
+social policy preflight "send whatsapp promo message"
 ```
 
 ## Quick Start
