@@ -151,6 +151,32 @@ This includes API version, default IDs, and tokens. The CLI never prints full to
 
 Run `social <group> --help` for full flags per command.
 
+## Team Roles + Audit (Agency Friendly)
+
+You can run Social CLI with role-based control and activity tracking per workspace.
+
+Set active operator (used for RBAC + logs):
+
+```bash
+social ops user set vishal --name "Vishal Ojha"
+social ops user show --workspace clientA
+```
+
+Assign roles:
+
+```bash
+social ops roles set alice viewer --workspace clientA
+social ops roles set bob operator --workspace clientA
+social ops roles show --workspace clientA --user bob
+```
+
+Track who did what:
+
+```bash
+social ops activity list --workspace clientA --limit 50
+social ops activity list --workspace clientA --actor bob
+```
+
 ## Agentic TUI
 
 ```bash

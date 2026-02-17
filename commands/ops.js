@@ -238,7 +238,7 @@ function registerOpsCommands(program) {
         console.log(JSON.stringify({ workspace: ws, approvals: rows }, null, 2));
         return;
       }
-      printRows(`Approvals (${ws})`, rows.map((x) => `${x.id} | ${x.status} | ${x.risk} | ${x.title}`));
+      printRows(`Approvals (${ws})`, rows.map((x) => `${x.id} | ${x.status} | ${x.risk} | by=${x.requestedBy || 'system'} | ${x.title}`));
     });
 
   approvals
@@ -517,6 +517,84 @@ function registerOpsCommands(program) {
         return;
       }
       console.log(chalk.green(`\nOK Role set: ${user} => ${normalized}${options.workspace ? ` (${workspaceFrom(options)})` : ' (global)'}\n`));
+    });
+
+  const user = ops.command('user').description('Active operator identity used for RBAC + audit logs');
+
+  user
+    .command('show')
+    .description('Show current active operator')
+    .option('--workspace <name>', 'Workspace/profile name')
+    .option('--json', 'Output JSON')
+    .action((options) => {
+      const ws = workspaceFrom(options);
+      const operator = typeof config.getOperator === 'function'
+        ? config.getOperator()
+        : { id: '', name: '' };
+      const id = operator.id || rbac.currentUser();
+      const role = storage.getRole({ workspace: ws, user: id });
+      if (options.json) {
+        console.log(JSON.stringify({ workspace: ws, operator: { id, name: operator.name || '' }, role }, null, 2));
+        return;
+      }
+      console.log(chalk.cyan(`\nActive operator: ${id}${operator.name ? ` (${operator.name})` : ''}`));
+      console.log(chalk.gray(`Workspace role (${ws}): ${role}\n`));
+    });
+
+  user
+    .command('set <id>')
+    .description('Set active operator id for future commands/logs')
+    .option('--name <name>', 'Display name')
+    .option('--json', 'Output JSON')
+    .action((id, options) => {
+      const next = config.setOperator({ id, name: options.name || '' });
+      if (options.json) {
+        console.log(JSON.stringify({ operator: next }, null, 2));
+        return;
+      }
+      console.log(chalk.green(`\nOK Active operator set: ${next.id}${next.name ? ` (${next.name})` : ''}\n`));
+    });
+
+  user
+    .command('clear')
+    .description('Clear active operator (fallback to SOCIAL_USER/OS user)')
+    .option('--json', 'Output JSON')
+    .action((options) => {
+      config.clearOperator();
+      if (options.json) {
+        console.log(JSON.stringify({ operator: { id: '', name: '' } }, null, 2));
+        return;
+      }
+      console.log(chalk.green('\nOK Active operator cleared.\n'));
+    });
+
+  const activity = ops.command('activity').description('Audit view: who worked on what');
+
+  activity
+    .command('list')
+    .description('List recent action log items')
+    .option('--workspace <name>', 'Workspace/profile name')
+    .option('--actor <id>', 'Filter by actor id')
+    .option('--limit <n>', 'How many rows', '30')
+    .option('--json', 'Output JSON')
+    .action((options) => {
+      const ws = workspaceFrom(options);
+      rbac.assertCan({ workspace: ws, action: 'read' });
+      const limit = Math.max(1, parseNumber(options.limit, 30));
+      let rows = storage.listActionLog(ws);
+      if (options.actor) {
+        const actor = String(options.actor || '').trim();
+        rows = rows.filter((x) => String(x.actor || '') === actor);
+      }
+      rows = rows.slice(-limit).reverse();
+      if (options.json) {
+        console.log(JSON.stringify({ workspace: ws, activity: rows }, null, 2));
+        return;
+      }
+      printRows(
+        `Activity (${ws})`,
+        rows.map((x) => `${x.createdAt} | ${x.actor} | ${x.action} | ${x.status} | ${x.summary}`)
+      );
     });
 
   const schedule = ops.command('schedule').description('Job scheduler for automated runs');
