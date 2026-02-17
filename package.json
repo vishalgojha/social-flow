@@ -9,7 +9,7 @@
   "scripts": {
     "test": "node test/run.js",
     "build:social-ts": "tsc -p tsconfig.social.json",
-    "test:social-ts": "tsx --test tests/intent-parser.test.ts",
+    "test:social-ts": "npm run build:social-ts && node --test --test-isolation=none dist-social/tests/intent-parser.test.js",
     "social:dev": "tsx cli/index.ts"
   },
   "keywords": [
