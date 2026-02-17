@@ -60,6 +60,25 @@ function summarizeIntent(intent: ParsedIntent, risk: string, missing: string[]):
   return `Plan ready: action=${intent.action}, risk=${risk}${slots ? `, slots: ${slots}` : ""}${missing.length ? `, missing: ${missing.join(", ")}` : ""}`;
 }
 
+function explainPlan(intent: ParsedIntent | null, risk: string | null): string {
+  if (!intent) return "No active plan yet. Send a request first.";
+  const actionReason: Record<string, string> = {
+    doctor: "You asked for health/setup validation.",
+    status: "You asked for a quick account/system status snapshot.",
+    config: "You asked to inspect current non-sensitive config.",
+    logs: "You asked to inspect recent execution logs.",
+    replay: "You asked to re-run a previous action.",
+    get_profile: "You asked for profile/account identity data.",
+    list_ads: "You asked for ads listing/visibility.",
+    create_post: "You asked to publish content."
+  };
+  return [
+    `Why this plan: ${actionReason[intent.action] || "Closest deterministic action was selected for your request."}`,
+    `Risk rationale: ${risk || "UNKNOWN"}${risk === "HIGH" ? " actions need elevated approval with reason." : risk === "MEDIUM" ? " actions require explicit confirm." : " actions auto-run."}`,
+    `Parameters: ${Object.entries(intent.params).filter(([, v]) => String(v || "").trim()).map(([k, v]) => `${k}=${v}`).join(", ") || "none"}`
+  ].join(" ");
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -116,6 +135,10 @@ function HatchRuntime(): JSX.Element {
     }
   }, []);
 
+  const streamPhase = useCallback(async (label: string, detail?: string) => {
+    await streamAssistantTurn(`${label}${detail ? `: ${detail}` : ""}`);
+  }, [streamAssistantTurn]);
+
   const refreshConfig = useCallback(async () => {
     setConfigState((prev) => ({ ...prev, loading: true, error: null }));
     try {
@@ -159,10 +182,11 @@ function HatchRuntime(): JSX.Element {
     dispatch({ type: "QUEUE_UPDATE", id: current.id, status: "RUNNING" });
     dispatch({ type: "MARK_EXECUTING" });
     dispatch({ type: "LOG_ADD", entry: newLog("INFO", `Executing ${state.currentIntent.action}`) });
-    await streamAssistantTurn(`Executing ${state.currentIntent.action}...`);
+    await streamPhase("Executing", state.currentIntent.action);
 
     try {
       const executor = getExecutor(state.currentIntent.action);
+      await streamPhase("Validating", "risk gate and required fields");
       const res = await executor.execute(state.currentIntent);
       dispatch({ type: "QUEUE_UPDATE", id: current.id, status: res.ok ? "DONE" : "FAILED" });
       dispatch({ type: "SET_RESULT", result: res.output });
@@ -171,6 +195,10 @@ function HatchRuntime(): JSX.Element {
         entry: newLog(res.ok ? "SUCCESS" : "ERROR", res.ok ? "Execution completed." : "Execution failed.")
       });
       await streamAssistantTurn(res.ok ? "Done. I executed that successfully." : "Execution failed. Check logs/results.");
+      const summaryKeys = Object.keys(res.output || {}).slice(0, 5);
+      await streamAssistantTurn(
+        `Execution summary: queue=${current.id}, status=${res.ok ? "success" : "failed"}, output_keys=${summaryKeys.join(", ") || "none"}.`
+      );
       if (res.rollback) {
         dispatch({
           type: "ROLLBACK_ADD",
@@ -201,8 +229,15 @@ function HatchRuntime(): JSX.Element {
       return parseAndQueueIntent(slash.inputToExecute);
     }
 
-    await streamAssistantTurn("Thinking...");
+    if (raw === "__why__") {
+      await streamAssistantTurn(explainPlan(state.currentIntent, state.currentRisk));
+      return;
+    }
+
+    await streamPhase("Reading request");
+    await streamPhase("Parsing intent");
     const parsed = await parseNaturalLanguageWithOptionalAi(raw);
+    await streamPhase("Planning", parsed.intent.action);
     dispatch({
       type: "PARSE_READY",
       intent: parsed.intent,
@@ -226,7 +261,7 @@ function HatchRuntime(): JSX.Element {
       return;
     }
     await streamAssistantTurn("Awaiting approval. Press Enter or a to continue.");
-  }, [addTurn, runExecution, streamAssistantTurn]);
+  }, [addTurn, runExecution, state.currentIntent, state.currentRisk, streamAssistantTurn, streamPhase]);
 
   const confirmOrExecute = useCallback(async (): Promise<void> => {
     if (state.phase === "INPUT") {
@@ -493,7 +528,7 @@ function HatchRuntime(): JSX.Element {
       {showHelp ? (
         <Panel title="HELP" focused>
           <Text color={theme.text}>Chat-first hatch mode.</Text>
-          <Text color={theme.text}>Commands: /help /doctor /status /config /logs /replay /ai ...</Text>
+          <Text color={theme.text}>Commands: /help /doctor /status /config /logs /replay /why /ai ...</Text>
           <Text color={theme.text}>Shortcuts: Enter confirm, a approve, r reject, e edit, d details</Text>
           <Text color={theme.muted}>x toggle right rail, / palette, up/down history, q quit</Text>
         </Panel>

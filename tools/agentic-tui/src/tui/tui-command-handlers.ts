@@ -19,6 +19,7 @@ export function handleSlashCommand(input: string): SlashCommandResult {
   if (cmd === "/status") return { consumed: true, inputToExecute: "status" };
   if (cmd === "/config") return { consumed: true, inputToExecute: "config" };
   if (cmd === "/logs") return { consumed: true, inputToExecute: "logs limit 20" };
+  if (cmd === "/why") return { consumed: true, inputToExecute: "__why__" };
   if (cmd.startsWith("/replay")) {
     const rest = raw.replace(/^\/replay/i, "").trim();
     return { consumed: true, inputToExecute: `replay ${rest || "latest"}` };
@@ -33,4 +34,3 @@ export function handleSlashCommand(input: string): SlashCommandResult {
     systemMessage: `Unknown slash command: ${raw}. Try /help`
   };
 }
-
