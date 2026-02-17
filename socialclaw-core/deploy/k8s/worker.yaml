@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: socialclaw-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: socialclaw-worker
+  template:
+    metadata:
+      labels:
+        app: socialclaw-worker
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/your-org/socialclaw-core-worker:latest
+          envFrom:
+            - secretRef:
+                name: socialclaw-env

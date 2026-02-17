@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: socialclaw-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: socialclaw-postgres
+  template:
+    metadata:
+      labels:
+        app: socialclaw-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: socialclaw-postgres
+                  key: password
+            - name: POSTGRES_DB
+              value: socialclaw
+          ports:
+            - containerPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: socialclaw-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: socialclaw-redis
+  template:
+    metadata:
+      labels:
+        app: socialclaw-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379

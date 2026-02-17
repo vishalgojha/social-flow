@@ -1,0 +1,30 @@
+name: socialclaw-core-ci
+
+on:
+  push:
+    paths:
+      - 'socialclaw-core/**'
+  pull_request:
+    paths:
+      - 'socialclaw-core/**'
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: socialclaw-core
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: Build Docker API image
+        run: docker build -f deploy/Dockerfile -t ghcr.io/${{ github.repository_owner }}/socialclaw-core:${{ github.sha }} .
+      - name: Build Docker worker image
+        run: docker build -f deploy/Dockerfile.worker -t ghcr.io/${{ github.repository_owner }}/socialclaw-core-worker:${{ github.sha }} .

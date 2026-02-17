@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: socialclaw-nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: socialclaw-nginx
+  template:
+    metadata:
+      labels:
+        app: socialclaw-nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: tls
+              mountPath: /etc/nginx/tls
+          ports:
+            - containerPort: 443
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: socialclaw-nginx-conf
+        - name: tls
+          secret:
+            secretName: socialclaw-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: socialclaw-nginx
+spec:
+  selector:
+    app: socialclaw-nginx
+  ports:
+    - port: 443
+      targetPort: 443
