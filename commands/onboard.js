@@ -4,6 +4,7 @@ const inquirer = require('inquirer');
 const chalk = require('chalk');
 const config = require('../lib/config');
 const packageJson = require('../package.json');
+const { readyLines } = require('../lib/ui/onboarding-ready');
 
 function runSubprocess(args) {
   return new Promise((resolve, reject) => {
@@ -77,7 +78,17 @@ function registerOnboardCommand(program) {
       await runSubprocess(['doctor']);
       config.markOnboardingComplete({ version: packageJson.version });
 
-      console.log(chalk.green('\nOnboarding complete. Recommended next step: social doctor\n'));
+      console.log(chalk.green('\nOnboarding complete.\n'));
+      readyLines({ profile: config.getActiveProfile() }).forEach((line) => {
+        if (/^\d+\./.test(line)) {
+          console.log(chalk.cyan(line));
+        } else if (line === 'You are now ready.') {
+          console.log(chalk.green.bold(line));
+        } else {
+          console.log(chalk.gray(line));
+        }
+      });
+      console.log('');
 
       if (process.stdout.isTTY && opts.hatch !== false) {
         console.log(chalk.cyan('Starting Hatch UI...\n'));

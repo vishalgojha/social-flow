@@ -42,7 +42,8 @@ function registerChatCommands(program) {
     .description('Legacy alias to hatch (agentic terminal chat)')
     .action(async () => {
       if (needsOnboarding()) {
-        console.log(chalk.yellow('\nOnboarding required before chat.\n'));
+        console.log(chalk.yellow('\nFirst-run setup required before chat.'));
+        console.log(chalk.gray('Guided path: onboard -> auth login -> doctor checks.\n'));
         await runSubprocess(['onboard']);
         return;
       }

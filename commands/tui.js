@@ -48,7 +48,8 @@ function registerTuiCommand(program) {
 
       try {
         if (!opts.skipOnboardCheck && needsOnboarding()) {
-          console.log(chalk.yellow('\nOnboarding required before Hatch UI. Starting onboarding...\n'));
+          console.log(chalk.yellow('\nFirst-run setup required before Hatch UI.'));
+          console.log(chalk.gray('Guided path: onboard -> auth login -> doctor checks.\n'));
           await runSubprocess(process.execPath, [binPath, '--no-banner', 'onboard'], env);
           return;
         }
