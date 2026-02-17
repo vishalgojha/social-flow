@@ -8,6 +8,7 @@ async function run() {
     './batch.test.js',
     './ai.test.js',
     './prompt-regression.test.js',
+    './intent-engine.test.js',
     './chat.test.js',
     './onboarding-ready.test.js',
     './gateway.test.js',
