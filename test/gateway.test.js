@@ -542,11 +542,12 @@ module.exports = [
           port: server.port,
           method: 'POST',
           pathName: '/api/team/invites',
-          body: { workspace: 'default', role: 'operator', expiresInHours: 72 }
+          body: { workspace: 'default', role: 'operator', expiresInHours: 72, baseUrl: 'http://127.0.0.1:1310' }
         });
         assert.equal(inviteCreate.status, 200);
         assert.equal(inviteCreate.data.ok, true);
         assert.equal(typeof inviteCreate.data.invite.token, 'string');
+        assert.equal(String(inviteCreate.data.invite.acceptUrl || '').includes('?invite='), true);
 
         const inviteList = await requestJson({
           port: server.port,

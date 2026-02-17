@@ -771,6 +771,7 @@ function renderTeamInvites() {
       <td class="mono">${escapeHtml(short(x.token || '', 24))}</td>
       <td>
         <button class="ghost-btn small js-team-invite-copy" data-token="${escapeHtml(x.token || '')}">Copy Accept</button>
+        <button class="ghost-btn small js-team-invite-copy-link" data-link="${escapeHtml(String(x.acceptUrl || (x.token ? `${window.location.origin}/?invite=${encodeURIComponent(x.token)}` : '')))}">Copy Link</button>
         ${String(x.status || '') === 'active' ? `<button class="ghost-btn small js-team-invite-revoke" data-id="${escapeHtml(x.id || '')}">Revoke</button>` : ''}
       </td>
     </tr>
@@ -873,11 +874,24 @@ async function createTeamInviteFromUi() {
   const expiresInHours = Number((els.teamInviteExpiresInput && els.teamInviteExpiresInput.value) || 72);
   const res = await api('/api/team/invites', {
     method: 'POST',
-    body: { workspace: state.workspace, role, expiresInHours }
+    body: { workspace: state.workspace, role, expiresInHours, baseUrl: window.location.origin }
   });
   appendMessage('system', `Invite created (${role}).`);
   state.team.invites = Array.isArray(res.invites) ? res.invites : state.team.invites;
   renderTeamInvites();
+}
+
+function prefillInviteFromQuery() {
+  try {
+    const params = new URLSearchParams(window.location.search || '');
+    const token = String(params.get('invite') || '').trim();
+    if (token && els.teamInviteAcceptTokenInput && !els.teamInviteAcceptTokenInput.value) {
+      els.teamInviteAcceptTokenInput.value = token;
+      appendMessage('system', 'Invite token detected from URL. Enter user ID and click Accept Invite.');
+    }
+  } catch {
+    // no-op
+  }
 }
 
 async function acceptTeamInviteFromUi() {
@@ -1944,6 +1958,15 @@ function wireEvents() {
         });
         appendMessage('system', `Invite revoked: ${id}`);
         await refreshTeamInvites();
+      } else if (btn.classList.contains('js-team-invite-copy-link')) {
+        const link = String(btn.getAttribute('data-link') || '').trim();
+        if (!link) return;
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          await navigator.clipboard.writeText(link);
+          appendMessage('system', 'Invite link copied.');
+        } else {
+          appendMessage('system', link);
+        }
       }
     } catch (error) {
       appendMessage('system', `Ops error: ${error.message}`);
@@ -2110,6 +2133,7 @@ async function init() {
     }
   }
   wireEvents();
+  prefillInviteFromQuery();
   connectWs();
   await checkHealth();
   await refreshConfig();

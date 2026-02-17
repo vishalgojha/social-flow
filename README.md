@@ -206,6 +206,7 @@ Invite-based onboarding:
 social ops invite create --workspace clientA --role operator --expires-in 72
 social ops invite list --workspace clientA --open
 social ops invite accept <TOKEN> --user alice
+social ops invite create --workspace clientA --role operator --base-url http://127.0.0.1:1310
 ```
 
 Generate a one-file onboarding/runbook handoff for your team:
@@ -656,6 +657,7 @@ Studio now shows download + copy-path actions for generated handoff files.
 `Settings -> Team Management` now includes an editable role table (with refresh + inline save).
 `Settings -> Team Management` also supports invite creation + revoke + copy accept command.
 `Settings -> Team Management` includes an `Accept Invite` form (token + user ID) for one-click onboarding.
+Invite links are supported (`?invite=<token>`), and Studio auto-prefills the token from URL.
 
 Studio shortcuts:
 

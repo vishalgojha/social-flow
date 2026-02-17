@@ -810,6 +810,7 @@ function registerOpsCommands(program) {
     .description('Create an invite token for a workspace role')
     .option('--workspace <name>', 'Workspace/profile name')
     .requiredOption('--role <role>', 'viewer|analyst|operator|owner')
+    .option('--base-url <url>', 'Optional studio URL to generate invite link')
     .option('--expires-in <hours>', 'Hours until invite expires', '72')
     .option('--json', 'Output JSON')
     .action((options) => {
@@ -823,12 +824,19 @@ function registerOpsCommands(program) {
       }
       const expiresIn = parseNumber(options.expiresIn, 72);
       const created = storage.createInvite({ workspace: ws, role, actor, expiresInHours: expiresIn });
+      const baseUrl = String(options.baseUrl || '').trim().replace(/\/+$/, '');
+      const acceptUrl = baseUrl ? `${baseUrl}/?invite=${encodeURIComponent(created.token)}` : '';
+      if (acceptUrl) {
+        const updated = storage.setInviteAcceptUrl({ id: created.id, acceptUrl });
+        created.acceptUrl = updated.acceptUrl;
+      }
       if (options.json) {
         console.log(JSON.stringify({ ok: true, invite: created }, null, 2));
         return;
       }
       console.log(chalk.green(`\nOK Invite created for ${ws}`));
       console.log(chalk.gray(`Token: ${created.token}`));
+      if (created.acceptUrl) console.log(chalk.gray(`Link:  ${created.acceptUrl}`));
       console.log(chalk.gray(`Accept: social ops invite accept ${created.token} --user <user-id>\n`));
     });
 
@@ -850,7 +858,10 @@ function registerOpsCommands(program) {
         console.log(JSON.stringify({ workspace: ws, invites: filtered }, null, 2));
         return;
       }
-      printRows(`Invites (${ws})`, filtered.map((x) => `${x.id} | ${x.role} | ${x.status} | expires=${x.expiresAt}`));
+      printRows(
+        `Invites (${ws})`,
+        filtered.map((x) => `${x.id} | ${x.role} | ${x.status} | expires=${x.expiresAt}${x.acceptUrl ? ` | link=${x.acceptUrl}` : ''}`)
+      );
     });
 
   invite
