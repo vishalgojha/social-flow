@@ -1,6 +1,7 @@
+import { createHash } from 'crypto';
 import { env } from '../config/env';
 import { decryptSecret } from '../security/crypto';
-import { getCredential } from '../services/repository';
+import { completeActionIdempotency, getCredential, reserveActionIdempotency } from '../services/repository';
 
 export interface ActionContext {
   executionId: string;
@@ -13,6 +14,13 @@ export interface ActionInput {
   nodeId: string;
   action: string;
   config: Record<string, unknown>;
+}
+
+function actionKey(input: ActionInput, ctx: ActionContext): string {
+  const digest = createHash('sha1')
+    .update(`${ctx.executionId}:${input.nodeId}:${String(input.action || '').trim().toLowerCase()}:${JSON.stringify(input.config || {})}`)
+    .digest('hex');
+  return `exec:${ctx.executionId}:${input.nodeId}:${digest}`;
 }
 
 function readPath(obj: Record<string, unknown>, path: string): unknown {
@@ -80,8 +88,45 @@ async function crmAdapter(input: ActionInput) {
 export async function executeAction(input: ActionInput, ctx: ActionContext): Promise<Record<string, unknown>> {
   const action = String(input.action || '').trim().toLowerCase();
   if (!action) throw new Error(`invalid_action:missing_action_for_node:${input.nodeId}`);
-  if (action === 'whatsapp.send_template') return whatsappAdapter(input, ctx);
-  if (action === 'email.send') return emailAdapter(input, ctx);
-  if (action === 'crm.update_status') return crmAdapter(input);
-  throw new Error(`unsupported_action:${action}`);
+  const key = actionKey(input, ctx);
+  const reservation = await reserveActionIdempotency({
+    tenantId: ctx.tenantId,
+    executionId: ctx.executionId,
+    nodeId: input.nodeId,
+    actionKey: key,
+    requestPayload: { action, config: input.config || {} }
+  });
+  if (!reservation.reserved) {
+    if (reservation.status === 'executed' && reservation.responsePayload) return reservation.responsePayload;
+    if (reservation.status === 'in_progress') {
+      return { action, skipped: true, reason: 'idempotency_in_progress' };
+    }
+    if (reservation.status === 'failed') {
+      throw new Error(`idempotency_prior_failure:${reservation.errorMessage || action}`);
+    }
+  }
+
+  try {
+    let out: Record<string, unknown>;
+    if (action === 'whatsapp.send_template') out = await whatsappAdapter(input, ctx);
+    else if (action === 'email.send') out = await emailAdapter(input, ctx);
+    else if (action === 'crm.update_status') out = await crmAdapter(input);
+    else throw new Error(`unsupported_action:${action}`);
+
+    await completeActionIdempotency({
+      tenantId: ctx.tenantId,
+      actionKey: key,
+      status: 'executed',
+      responsePayload: out
+    });
+    return out;
+  } catch (error) {
+    await completeActionIdempotency({
+      tenantId: ctx.tenantId,
+      actionKey: key,
+      status: 'failed',
+      errorMessage: String((error as Error)?.message || error || '')
+    });
+    throw error;
+  }
 }

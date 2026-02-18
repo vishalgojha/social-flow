@@ -28,8 +28,8 @@
 - [x] Safety cap enforcement
 - [x] Retry/backoff queue policy
 - [x] Execution replay timeline endpoint
-- [ ] Graph-edge branching (`next` pointers / conditional jumps)
-- [ ] Idempotency keys enforced per action at DB level
+- [x] Graph-edge branching (`next` pointers / conditional jumps)
+- [x] Idempotency keys enforced per action at DB level
 
 ## Integrations
 - [x] WhatsApp action adapter scaffold with dry-run safety

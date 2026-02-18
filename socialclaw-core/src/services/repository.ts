@@ -199,3 +199,64 @@ export async function markExecutionFinished(input: {
     [input.executionId, input.tenantId, input.status, input.errorMessage || null]
   );
 }
+
+export async function reserveActionIdempotency(input: {
+  tenantId: string;
+  executionId: string;
+  nodeId: string;
+  actionKey: string;
+  requestPayload: Record<string, unknown>;
+}) {
+  const inserted = await query<{ id: string }>(
+    `INSERT INTO workflow_action_idempotency(tenant_id, execution_id, node_id, action_key, status, request_payload)
+     VALUES($1,$2,$3,$4,'in_progress',$5::jsonb)
+     ON CONFLICT (tenant_id, action_key) DO NOTHING
+     RETURNING id`,
+    [input.tenantId, input.executionId, input.nodeId, input.actionKey, JSON.stringify(input.requestPayload || {})]
+  );
+  if (inserted.rows[0]) {
+    return { reserved: true, status: 'in_progress' as const, responsePayload: null as Record<string, unknown> | null };
+  }
+
+  const existing = await query<{
+    status: 'in_progress' | 'executed' | 'failed';
+    response_payload: Record<string, unknown>;
+    error_message: string | null;
+  }>(
+    `SELECT status, response_payload, error_message
+     FROM workflow_action_idempotency
+     WHERE tenant_id=$1 AND action_key=$2`,
+    [input.tenantId, input.actionKey]
+  );
+  const row = existing.rows[0];
+  if (!row) {
+    return { reserved: false, status: 'failed' as const, responsePayload: null as Record<string, unknown> | null, errorMessage: 'idempotency_lookup_failed' };
+  }
+  return {
+    reserved: false,
+    status: row.status,
+    responsePayload: row.response_payload || null,
+    errorMessage: row.error_message || ''
+  };
+}
+
+export async function completeActionIdempotency(input: {
+  tenantId: string;
+  actionKey: string;
+  status: 'executed' | 'failed';
+  responsePayload?: Record<string, unknown>;
+  errorMessage?: string;
+}) {
+  await query(
+    `UPDATE workflow_action_idempotency
+     SET status=$3, response_payload=$4::jsonb, error_message=$5, updated_at=NOW()
+     WHERE tenant_id=$1 AND action_key=$2`,
+    [
+      input.tenantId,
+      input.actionKey,
+      input.status,
+      JSON.stringify(input.responsePayload || {}),
+      input.errorMessage || null
+    ]
+  );
+}

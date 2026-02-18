@@ -35,7 +35,7 @@
 - `src/ai`: Intent-to-structured-workflow generation and validation.
 - `src/workflows`: JSON Schema + AJV validation logic.
 - `src/engine`: Queue, worker, retry/backoff, safety gates.
-  - deterministic runtime in `src/engine/runtime.ts` (node-by-node execution, no free-form planning at run-time)
+  - deterministic runtime in `src/engine/runtime.ts` (node-by-node execution, graph edges via `next`/`onTrue`/`onFalse`, no free-form planning at run-time)
 - `src/db`: PostgreSQL client and SQL schema.
 - `src/observability`: structured logs and Prometheus metrics.
 - `tests`: Jest unit + integration tests.

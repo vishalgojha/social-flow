@@ -9,6 +9,8 @@ interface RuntimeInput {
   triggerPayload: Record<string, unknown>;
   executionId: string;
   maxActions: number;
+  maxNodeVisits?: number;
+  actionExecutor?: typeof executeAction;
 }
 
 interface RuntimeHooks {
@@ -37,11 +39,47 @@ function evalCondition(node: WorkflowNode, triggerPayload: Record<string, unknow
   return false;
 }
 
-export async function runDeterministicWorkflow(input: RuntimeInput, hooks: RuntimeHooks): Promise<{ actionsExecuted: number }> {
-  const { workflow, tenantId, clientId, triggerType, triggerPayload, executionId, maxActions } = input;
-  let actionsExecuted = 0;
+function normalizeNextIds(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((x) => String(x || '').trim()).filter(Boolean);
+  const one = String(value || '').trim();
+  return one ? [one] : [];
+}
 
-  for (const node of workflow.nodes) {
+function sequentialNext(nodes: WorkflowNode[], nodeId: string): string[] {
+  const idx = nodes.findIndex((x) => x.id === nodeId);
+  if (idx < 0 || idx >= nodes.length - 1) return [];
+  return [nodes[idx + 1].id];
+}
+
+export async function runDeterministicWorkflow(input: RuntimeInput, hooks: RuntimeHooks): Promise<{ actionsExecuted: number }> {
+  const {
+    workflow,
+    tenantId,
+    clientId,
+    triggerType,
+    triggerPayload,
+    executionId,
+    maxActions,
+    maxNodeVisits = 500,
+    actionExecutor = executeAction
+  } = input;
+  let actionsExecuted = 0;
+  const nodeMap = new Map(workflow.nodes.map((n) => [n.id, n]));
+  const queue: string[] = [];
+  const triggerNodes = workflow.nodes.filter((x) => x.type === 'trigger');
+  if (triggerNodes.length) {
+    triggerNodes.forEach((n) => queue.push(n.id));
+  } else if (workflow.nodes[0]) {
+    queue.push(workflow.nodes[0].id);
+  }
+  let visits = 0;
+
+  while (queue.length) {
+    visits += 1;
+    if (visits > maxNodeVisits) throw new Error('node_visit_limit_exceeded');
+    const nodeId = queue.shift() as string;
+    const node = nodeMap.get(nodeId);
+    if (!node) continue;
     await hooks.onNodeEvent('info', 'node.enter', { nodeId: node.id, nodeType: node.type });
 
     if (node.type === 'trigger') {
@@ -51,6 +89,8 @@ export async function runDeterministicWorkflow(input: RuntimeInput, hooks: Runti
         continue;
       }
       await hooks.onNodeEvent('info', 'node.trigger.matched', { nodeId: node.id, triggerType });
+      const next = normalizeNextIds(node.config?.['next']);
+      (next.length ? next : sequentialNext(workflow.nodes, node.id)).forEach((id) => queue.push(id));
       continue;
     }
 
@@ -59,8 +99,12 @@ export async function runDeterministicWorkflow(input: RuntimeInput, hooks: Runti
       await hooks.onNodeEvent(passed ? 'info' : 'warn', 'node.condition.evaluated', { nodeId: node.id, passed });
       if (!passed && Boolean(node.config?.['stopOnFalse'])) {
         await hooks.onNodeEvent('warn', 'execution.stopped_by_condition', { nodeId: node.id });
-        break;
+        continue;
       }
+      const routed = passed
+        ? normalizeNextIds(node.config?.['onTrue'])
+        : normalizeNextIds(node.config?.['onFalse']);
+      (routed.length ? routed : sequentialNext(workflow.nodes, node.id)).forEach((id) => queue.push(id));
       continue;
     }
 
@@ -69,6 +113,8 @@ export async function runDeterministicWorkflow(input: RuntimeInput, hooks: Runti
       const boundedMs = Math.max(0, Math.min(Number.isFinite(requestedMs) ? requestedMs : 0, 2000));
       if (boundedMs > 0) await new Promise((resolve) => setTimeout(resolve, boundedMs));
       await hooks.onNodeEvent('info', 'node.delay.completed', { nodeId: node.id, requestedMs, appliedMs: boundedMs });
+      const next = normalizeNextIds(node.config?.['next']);
+      (next.length ? next : sequentialNext(workflow.nodes, node.id)).forEach((id) => queue.push(id));
       continue;
     }
 
@@ -76,7 +122,7 @@ export async function runDeterministicWorkflow(input: RuntimeInput, hooks: Runti
       actionsExecuted += 1;
       if (actionsExecuted > maxActions) throw new Error('execution_cap_exceeded');
       const cfg = node.config || {};
-      const result = await executeAction({
+      const result = await actionExecutor({
         nodeId: node.id,
         action: String(cfg['action'] || ''),
         config: cfg
@@ -87,6 +133,8 @@ export async function runDeterministicWorkflow(input: RuntimeInput, hooks: Runti
         triggerPayload
       });
       await hooks.onNodeEvent('info', 'node.action.executed', { nodeId: node.id, ...result });
+      const next = normalizeNextIds(node.config?.['next']);
+      (next.length ? next : sequentialNext(workflow.nodes, node.id)).forEach((id) => queue.push(id));
       continue;
     }
 
