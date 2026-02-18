@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 function getEnv(name: string, fallback = ''): string {
   const v = String(process.env[name] || '').trim();
@@ -66,6 +67,9 @@ async function main() {
   const token = getEnv('SOCIALCLAW_BEARER');
   const clientId = getEnv('SOCIALCLAW_CLIENT_ID');
   const mode = (getEnv('SOCIALCLAW_VERIFY_MODE', 'dry_run') === 'live') ? 'live' : 'dry_run';
+  const autoSignoff = getEnv('SOCIALCLAW_AUTO_SIGNOFF', 'false').toLowerCase() === 'true';
+  const releaseTag = getEnv('SOCIALCLAW_RELEASE_TAG');
+  const releaseNotes = getEnv('SOCIALCLAW_RELEASE_NOTES', 'Auto signoff from staging verify');
   const whatsappTestRecipient = getEnv('SOCIALCLAW_WA_TEST_RECIPIENT');
   const emailTestRecipient = getEnv('SOCIALCLAW_EMAIL_TEST_RECIPIENT');
 
@@ -115,8 +119,45 @@ async function main() {
   fs.writeFileSync(outJsonPath, JSON.stringify(report, null, 2), 'utf8');
   fs.writeFileSync(outMdPath, renderMarkdown(report as unknown as Record<string, unknown>), 'utf8');
 
+  let signoff: Record<string, unknown> | null = null;
+  if (autoSignoff) {
+    if (!releaseTag) throw new Error('SOCIALCLAW_RELEASE_TAG is required when SOCIALCLAW_AUTO_SIGNOFF=true');
+    const mdContent = fs.readFileSync(outMdPath);
+    const sha256 = createHash('sha256').update(mdContent).digest('hex');
+    const signoffRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/v1/releases/signoff`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        clientId,
+        releaseTag,
+        reportSha256: sha256,
+        reportPath: outMdPath,
+        status: report.ok ? 'approved' : 'rejected',
+        notes: releaseNotes,
+        metadata: { source: 'scripts/staging-verify.ts', mode, autoSignoff: true }
+      })
+    });
+    const signoffPayload = await signoffRes.json().catch(() => ({}));
+    signoff = signoffPayload.signoff || null;
+    if (!signoffRes.ok) {
+      // eslint-disable-next-line no-console
+      console.error(JSON.stringify({ ok: false, stage: 'release_signoff', statusCode: signoffRes.status, response: signoffPayload }, null, 2));
+      process.exitCode = 1;
+    }
+  }
+
   // eslint-disable-next-line no-console
-  console.log(JSON.stringify({ ok: report.ok, statusCode: res.status, reportJsonPath: outJsonPath, reportMdPath: outMdPath }, null, 2));
+  console.log(JSON.stringify({
+    ok: report.ok,
+    statusCode: res.status,
+    reportJsonPath: outJsonPath,
+    reportMdPath: outMdPath,
+    autoSignoff,
+    signoff
+  }, null, 2));
   if (!res.ok || !report.ok) process.exitCode = 1;
 }
 

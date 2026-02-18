@@ -73,9 +73,19 @@ Required environment variables:
 - `SOCIALCLAW_WA_TEST_RECIPIENT`
 - `SOCIALCLAW_EMAIL_TEST_RECIPIENT`
 
+Optional automatic signoff after verification:
+- `SOCIALCLAW_AUTO_SIGNOFF=true`
+- `SOCIALCLAW_RELEASE_TAG=<release-tag>`
+- `SOCIALCLAW_RELEASE_NOTES=<notes>`
+
 ## Release Signoff Lock
 After generating reports, store immutable evidence hash in DB:
 
 - `POST /v1/releases/signoff`
   - body: `clientId`, `releaseTag`, `reportSha256`, `reportPath`, optional `notes`
 - `GET /v1/releases/signoff/latest?clientId=<id>`
+
+CLI helper command:
+- `npm run release:signoff`
+- Required env: `SOCIALCLAW_API_BASE`, `SOCIALCLAW_BEARER`, `SOCIALCLAW_CLIENT_ID`, `SOCIALCLAW_RELEASE_TAG`
+- Optional env: `SOCIALCLAW_REPORT_PATH` (defaults to latest report in `reports/`)

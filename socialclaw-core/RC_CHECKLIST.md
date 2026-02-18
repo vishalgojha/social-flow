@@ -39,6 +39,7 @@
 - [x] Staging verification report command (`npm run verify:staging`)
 - [x] Markdown signoff report artifact (`reports/*.md`)
 - [x] Release signoff lock API with immutable report hash
+- [x] Release signoff CLI helper (`npm run release:signoff`)
 - [ ] Live WhatsApp send validation in staging with test number
 - [x] Production email provider adapter (SES/SendGrid)
 - [ ] CRM adapter integration against selected provider
