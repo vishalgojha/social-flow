@@ -1,4 +1,4 @@
-import { evaluateWhatsAppContract } from '../src/engine/integration-contract';
+import { buildWhatsAppFixSuggestions, evaluateWhatsAppContract } from '../src/engine/integration-contract';
 
 describe('integration contract', () => {
   it('marks contract ready only for recent passed live verification', () => {
@@ -25,5 +25,20 @@ describe('integration contract', () => {
     });
     expect(out.stale).toBe(true);
     expect(out.ready).toBe(false);
+  });
+
+  it('returns actionable suggestions for missing and stale checks', () => {
+    const suggestions = buildWhatsAppFixSuggestions({
+      connected: false,
+      verified: false,
+      testSendPassed: false,
+      stale: true,
+      liveAllowed: false,
+      latestVerificationStatus: 'failed'
+    });
+    expect(suggestions.some((x) => x.id === 'connect_access_token')).toBe(true);
+    expect(suggestions.some((x) => x.id === 'set_phone_number_id')).toBe(true);
+    expect(suggestions.some((x) => x.id === 'enable_live_verify')).toBe(true);
+    expect(suggestions.some((x) => x.id === 'refresh_verification')).toBe(true);
   });
 });
