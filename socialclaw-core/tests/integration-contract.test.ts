@@ -1,4 +1,9 @@
-import { buildWhatsAppFixSuggestions, evaluateWhatsAppContract } from '../src/engine/integration-contract';
+import {
+  buildEmailFixSuggestions,
+  buildWhatsAppFixSuggestions,
+  evaluateEmailContract,
+  evaluateWhatsAppContract
+} from '../src/engine/integration-contract';
 
 describe('integration contract', () => {
   it('marks contract ready only for recent passed live verification', () => {
@@ -40,5 +45,26 @@ describe('integration contract', () => {
     expect(suggestions.some((x) => x.id === 'set_phone_number_id')).toBe(true);
     expect(suggestions.some((x) => x.id === 'enable_live_verify')).toBe(true);
     expect(suggestions.some((x) => x.id === 'refresh_verification')).toBe(true);
+  });
+
+  it('evaluates email contract and suggestions', () => {
+    const out = evaluateEmailContract({
+      hasApiKey: true,
+      hasFromEmail: false,
+      latestLiveVerificationOk: false,
+      latestLiveVerificationAt: '',
+      maxAgeDays: 30
+    });
+    expect(out.ready).toBe(false);
+    const suggestions = buildEmailFixSuggestions({
+      connected: out.connected,
+      verified: out.verified,
+      testSendPassed: out.testSendPassed,
+      stale: out.stale,
+      liveAllowed: true,
+      latestVerificationStatus: ''
+    });
+    expect(suggestions.some((x) => x.id === 'set_sendgrid_from_email')).toBe(true);
+    expect(suggestions.some((x) => x.id === 'run_live_verify')).toBe(true);
   });
 });

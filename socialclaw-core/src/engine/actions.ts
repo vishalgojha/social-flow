@@ -7,7 +7,7 @@ import {
   getLatestIntegrationVerification,
   reserveActionIdempotency
 } from '../services/repository';
-import { evaluateWhatsAppContract } from './integration-contract';
+import { evaluateEmailContract, evaluateWhatsAppContract } from './integration-contract';
 
 export interface ActionContext {
   executionId: string;
@@ -104,7 +104,60 @@ async function emailAdapter(input: ActionInput, ctx: ActionContext) {
   const to = String(input.config['to'] || readPath(ctx.triggerPayload, 'lead.email') || '').trim();
   const template = String(input.config['template'] || '').trim();
   if (!to || !template) throw new Error(`invalid_action_payload:${input.nodeId}:email.send`);
-  return { action: input.action, delivered: true, dryRun: env.EXECUTION_DRY_RUN };
+  if (env.EXECUTION_DRY_RUN) {
+    return { action: input.action, delivered: true, dryRun: true };
+  }
+
+  const apiKeyRow = await getCredential({
+    tenantId: ctx.tenantId,
+    clientId: ctx.clientId,
+    provider: 'email_sendgrid',
+    credentialType: 'api_key'
+  });
+  if (!apiKeyRow) throw new Error('credential_missing:email_sendgrid.api_key');
+
+  const fromRow = await getCredential({
+    tenantId: ctx.tenantId,
+    clientId: ctx.clientId,
+    provider: 'email_sendgrid',
+    credentialType: 'from_email'
+  });
+  if (!fromRow) throw new Error('credential_missing:email_sendgrid.from_email');
+
+  const latestVerification = await getLatestIntegrationVerification({
+    tenantId: ctx.tenantId,
+    clientId: ctx.clientId,
+    provider: 'email_sendgrid',
+    checkType: 'test_send_live'
+  });
+  const contract = evaluateEmailContract({
+    hasApiKey: true,
+    hasFromEmail: true,
+    latestLiveVerificationOk: latestVerification?.status === 'passed',
+    latestLiveVerificationAt: latestVerification?.created_at || '',
+    maxAgeDays: env.EMAIL_VERIFICATION_MAX_AGE_DAYS
+  });
+  if (!contract.ready) throw new Error('integration_not_ready:email_verification_required');
+
+  const apiKey = decryptSecret(apiKeyRow.encrypted_secret);
+  const fromEmail = decryptSecret(fromRow.encrypted_secret);
+  const subject = String(input.config['subject'] || template || 'SocialClaw Notification').trim();
+  const contentText = String(input.config['text'] || `Template: ${template}`).trim();
+  const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: fromEmail },
+      subject,
+      content: [{ type: 'text/plain', value: contentText }]
+    })
+  });
+  if (!res.ok) throw new Error(`email_send_failed:${res.status}`);
+  return { action: input.action, delivered: true, provider: 'sendgrid', statusCode: res.status };
 }
 
 async function crmAdapter(input: ActionInput) {

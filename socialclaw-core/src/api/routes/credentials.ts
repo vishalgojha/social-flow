@@ -8,7 +8,12 @@ import {
   saveCredential
 } from '../../services/repository';
 import { decryptSecret, encryptSecret } from '../../security/crypto';
-import { buildWhatsAppFixSuggestions, evaluateWhatsAppContract } from '../../engine/integration-contract';
+import {
+  buildEmailFixSuggestions,
+  buildWhatsAppFixSuggestions,
+  evaluateEmailContract,
+  evaluateWhatsAppContract
+} from '../../engine/integration-contract';
 
 async function whatsappStatus(tenantId: string, clientId: string) {
   const token = await getCredential({
@@ -118,6 +123,117 @@ async function verifyWhatsApp(input: {
     initiatedBy: input.initiatedBy
   });
 
+  return {
+    ok: verificationStatus === 'passed',
+    verification: {
+      id: row.id,
+      createdAt: row.created_at,
+      status: verificationStatus,
+      checks,
+      evidence
+    }
+  };
+}
+
+async function emailStatus(tenantId: string, clientId: string) {
+  const apiKey = await getCredential({
+    tenantId,
+    clientId,
+    provider: 'email_sendgrid',
+    credentialType: 'api_key'
+  });
+  const from = await getCredential({
+    tenantId,
+    clientId,
+    provider: 'email_sendgrid',
+    credentialType: 'from_email'
+  });
+  const latest = await getLatestIntegrationVerification({
+    tenantId,
+    clientId,
+    provider: 'email_sendgrid',
+    checkType: 'test_send_live'
+  });
+  const contract = evaluateEmailContract({
+    hasApiKey: Boolean(apiKey),
+    hasFromEmail: Boolean(from),
+    latestLiveVerificationOk: latest?.status === 'passed',
+    latestLiveVerificationAt: latest?.created_at || '',
+    maxAgeDays: env.EMAIL_VERIFICATION_MAX_AGE_DAYS
+  });
+  return { apiKey, from, latest, contract };
+}
+
+async function verifyEmail(input: {
+  tenantId: string;
+  clientId: string;
+  initiatedBy: string;
+  testRecipient: string;
+  mode?: 'dry_run' | 'live';
+  subject?: string;
+  text?: string;
+}) {
+  const status = await emailStatus(input.tenantId, input.clientId);
+  const mode = input.mode || 'dry_run';
+  const checks: Array<Record<string, unknown>> = [
+    { key: 'connected', ok: Boolean(status.apiKey), detail: status.apiKey ? 'SendGrid API key present.' : 'Missing SendGrid API key.' },
+    { key: 'verified', ok: Boolean(status.from), detail: status.from ? 'From email present.' : 'Missing from email.' }
+  ];
+  let verificationStatus: 'passed' | 'failed' | 'partial' = 'failed';
+  let evidence: Record<string, unknown> = { mode };
+
+  if (!status.apiKey || !status.from) {
+    verificationStatus = 'failed';
+  } else if (mode === 'live' && !env.VERIFY_ALLOW_LIVE) {
+    checks.push({
+      key: 'test_send_live',
+      ok: false,
+      detail: 'Live verification is disabled by VERIFY_ALLOW_LIVE=false.'
+    });
+    verificationStatus = 'failed';
+  } else if (mode === 'dry_run') {
+    checks.push({
+      key: 'test_send_live',
+      ok: false,
+      detail: 'Dry run completed. Run mode=live to satisfy test-send pass contract.'
+    });
+    verificationStatus = 'partial';
+  } else {
+    const apiKey = decryptSecret(status.apiKey.encrypted_secret);
+    const fromEmail = decryptSecret(status.from.encrypted_secret);
+    const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: String(input.testRecipient || '').trim() }] }],
+        from: { email: fromEmail },
+        subject: String(input.subject || 'SocialClaw Email Verify').trim(),
+        content: [{ type: 'text/plain', value: String(input.text || 'SocialClaw email verification test').trim() }]
+      })
+    });
+    const responseBody = await res.text().catch(() => '');
+    evidence = { ...evidence, httpStatus: res.status, response: responseBody };
+    checks.push({
+      key: 'test_send_live',
+      ok: res.ok,
+      detail: res.ok ? 'Live test-send succeeded.' : `Live test-send failed (${res.status}).`
+    });
+    verificationStatus = res.ok ? 'passed' : 'failed';
+  }
+
+  const row = await appendIntegrationVerification({
+    tenantId: input.tenantId,
+    clientId: input.clientId,
+    provider: 'email_sendgrid',
+    checkType: 'test_send_live',
+    status: verificationStatus,
+    checks,
+    evidence,
+    initiatedBy: input.initiatedBy
+  });
   return {
     ok: verificationStatus === 'passed',
     verification: {
@@ -310,6 +426,169 @@ export function registerCredentialRoutes(app: FastifyInstance) {
     return {
       ok: after.contract.ready,
       provider: 'whatsapp',
+      before: {
+        contract: before.contract,
+        latestVerification: before.latest
+          ? { id: before.latest.id, status: before.latest.status, createdAt: before.latest.created_at }
+          : null
+      },
+      verification,
+      after: {
+        contract: after.contract,
+        latestVerification: after.latest
+          ? { id: after.latest.id, status: after.latest.status, createdAt: after.latest.created_at }
+          : null
+      },
+      suggestions
+    };
+  });
+
+  app.post('/v1/clients/:clientId/credentials/email/sendgrid', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['apiKey', 'fromEmail'],
+        properties: {
+          apiKey: { type: 'string' },
+          fromEmail: { type: 'string' }
+        }
+      }
+    }
+  }, async (req) => {
+    assertRole(req.user!.role, 'admin');
+    const params = req.params as { clientId: string };
+    const body = req.body as { apiKey: string; fromEmail: string };
+    await saveCredential({
+      tenantId: req.user!.tenantId,
+      clientId: params.clientId,
+      provider: 'email_sendgrid',
+      credentialType: 'api_key',
+      encryptedSecret: encryptSecret(body.apiKey),
+      userId: req.user!.userId
+    });
+    const out = await saveCredential({
+      tenantId: req.user!.tenantId,
+      clientId: params.clientId,
+      provider: 'email_sendgrid',
+      credentialType: 'from_email',
+      encryptedSecret: encryptSecret(body.fromEmail),
+      userId: req.user!.userId
+    });
+    return { connected: true, credential: out };
+  });
+
+  app.post('/v1/clients/:clientId/credentials/email/sendgrid/rotate', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['apiKey'],
+        properties: { apiKey: { type: 'string' } }
+      }
+    }
+  }, async (req) => {
+    assertRole(req.user!.role, 'admin');
+    const params = req.params as { clientId: string };
+    const body = req.body as { apiKey: string };
+    const out = await saveCredential({
+      tenantId: req.user!.tenantId,
+      clientId: params.clientId,
+      provider: 'email_sendgrid',
+      credentialType: 'api_key',
+      encryptedSecret: encryptSecret(body.apiKey),
+      userId: req.user!.userId
+    });
+    return { rotated: true, credential: out };
+  });
+
+  app.get('/v1/clients/:clientId/credentials/email/status', async (req) => {
+    assertRole(req.user!.role, 'viewer');
+    const params = req.params as { clientId: string };
+    const { latest, contract } = await emailStatus(req.user!.tenantId, params.clientId);
+    const suggestions = buildEmailFixSuggestions({
+      connected: contract.connected,
+      verified: contract.verified,
+      testSendPassed: contract.testSendPassed,
+      stale: contract.stale,
+      liveAllowed: env.VERIFY_ALLOW_LIVE,
+      latestVerificationStatus: latest?.status || ''
+    });
+    return {
+      provider: 'email_sendgrid',
+      contract,
+      suggestions,
+      latestVerification: latest
+        ? { id: latest.id, status: latest.status, createdAt: latest.created_at }
+        : null
+    };
+  });
+
+  app.post('/v1/clients/:clientId/credentials/email/verify', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['testRecipient'],
+        properties: {
+          testRecipient: { type: 'string' },
+          mode: { type: 'string', enum: ['dry_run', 'live'] },
+          subject: { type: 'string' },
+          text: { type: 'string' }
+        }
+      }
+    }
+  }, async (req) => {
+    assertRole(req.user!.role, 'admin');
+    const params = req.params as { clientId: string };
+    const body = req.body as { testRecipient: string; mode?: 'dry_run' | 'live'; subject?: string; text?: string };
+    return verifyEmail({
+      tenantId: req.user!.tenantId,
+      clientId: params.clientId,
+      initiatedBy: req.user!.userId,
+      testRecipient: body.testRecipient,
+      mode: body.mode,
+      subject: body.subject,
+      text: body.text
+    });
+  });
+
+  app.post('/v1/clients/:clientId/credentials/email/diagnose', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['testRecipient'],
+        properties: {
+          testRecipient: { type: 'string' },
+          mode: { type: 'string', enum: ['dry_run', 'live'] },
+          subject: { type: 'string' },
+          text: { type: 'string' }
+        }
+      }
+    }
+  }, async (req) => {
+    assertRole(req.user!.role, 'admin');
+    const params = req.params as { clientId: string };
+    const body = req.body as { testRecipient: string; mode?: 'dry_run' | 'live'; subject?: string; text?: string };
+    const before = await emailStatus(req.user!.tenantId, params.clientId);
+    const verification = await verifyEmail({
+      tenantId: req.user!.tenantId,
+      clientId: params.clientId,
+      initiatedBy: req.user!.userId,
+      testRecipient: body.testRecipient,
+      mode: body.mode || 'dry_run',
+      subject: body.subject,
+      text: body.text
+    });
+    const after = await emailStatus(req.user!.tenantId, params.clientId);
+    const suggestions = buildEmailFixSuggestions({
+      connected: after.contract.connected,
+      verified: after.contract.verified,
+      testSendPassed: after.contract.testSendPassed,
+      stale: after.contract.stale,
+      liveAllowed: env.VERIFY_ALLOW_LIVE,
+      latestVerificationStatus: after.latest?.status || ''
+    });
+    return {
+      ok: after.contract.ready,
+      provider: 'email_sendgrid',
       before: {
         contract: before.contract,
         latestVerification: before.latest

@@ -52,3 +52,6 @@
 ## Release Readiness
 - Track go-live requirements in `RC_CHECKLIST.md`.
 - Keep `EXECUTION_DRY_RUN=true` until staging validation is complete.
+- Use one-click diagnostics endpoints for staged validation:
+  - `POST /v1/clients/:clientId/credentials/whatsapp/diagnose`
+  - `POST /v1/clients/:clientId/credentials/email/diagnose`

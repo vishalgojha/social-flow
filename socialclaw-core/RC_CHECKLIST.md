@@ -36,7 +36,7 @@
 - [x] Verification evidence logging and status contract endpoint
 - [x] One-click diagnostics endpoint with fix suggestions
 - [ ] Live WhatsApp send validation in staging with test number
-- [ ] Production email provider adapter (SES/SendGrid)
+- [x] Production email provider adapter (SES/SendGrid)
 - [ ] CRM adapter integration against selected provider
 
 ## Operations
