@@ -58,9 +58,13 @@
   - `POST /v1/clients/:clientId/credentials/diagnose/all`
 
 ## Staging Verification Command
-Run one command to generate a timestamped evidence artifact under `reports/`:
+Run one command to generate timestamped evidence artifacts under `reports/`:
 
 `npm run verify:staging`
+
+Outputs:
+- `staging-verification-<client>-<timestamp>.json`
+- `staging-verification-<client>-<timestamp>.md`
 
 Required environment variables:
 - `SOCIALCLAW_API_BASE`

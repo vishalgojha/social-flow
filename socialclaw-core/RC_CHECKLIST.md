@@ -37,6 +37,7 @@
 - [x] One-click diagnostics endpoint with fix suggestions
 - [x] Combined diagnostics endpoint for WhatsApp + Email
 - [x] Staging verification report command (`npm run verify:staging`)
+- [x] Markdown signoff report artifact (`reports/*.md`)
 - [ ] Live WhatsApp send validation in staging with test number
 - [x] Production email provider adapter (SES/SendGrid)
 - [ ] CRM adapter integration against selected provider
