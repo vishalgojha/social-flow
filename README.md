@@ -40,7 +40,11 @@ From this repository, you can install in one click:
 
 1. Double-click `install.cmd`
 2. Wait for completion
-3. When prompted, press `Y` to launch Social CLI Hatch in a new terminal window
+3. Press `Y` to start guided setup
+4. Complete `social auth login -a facebook`
+5. Choose interface:
+   - `Terminal UI (Hatch)`
+   - `Agentic Frontend (Social Studio web UI)`
 
 What it does:
 
