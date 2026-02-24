@@ -30,8 +30,8 @@ set "AUTH_CODE=%ERRORLEVEL%"
 
 if not "%AUTH_CODE%"=="0" (
   echo.
-  echo Authentication did not complete (exit code %AUTH_CODE%).
-  choice /C YN /N /T 20 /D Y /M "Continue to interface selection anyway? [Y/N] (auto Y in 20s): "
+  echo Authentication did not complete ^(exit code %AUTH_CODE%^).
+  choice /C YN /N /T 20 /D Y /M "Continue to interface selection anyway? [Y/N] ^(auto Y in 20s^): "
   if errorlevel 2 goto :end
 )
 
