@@ -39,7 +39,6 @@
     "commands/",
     "lib/",
     "docs/",
-    "web/",
     "tools/",
     "index.js",
     "README.md",

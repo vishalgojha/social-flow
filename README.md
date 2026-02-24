@@ -10,7 +10,7 @@ Built for developers and agencies that want one consistent workflow for auth, po
 - Profile-based multi-account workflows
 - Deterministic commands for posting/querying/marketing
 - Agent + chat workflows with risk-aware execution
-- Localhost Studio UI (`social studio`) with live session events
+- Localhost API gateway (`social gateway`) with live session events
 - Ops control-plane commands for approvals, invites, handoff, and runbooks
 
 ## Install
@@ -26,7 +26,7 @@ social --help
 
 1. Open the repo locally.
 2. Double-click `install.cmd`.
-3. After install, choose guided setup (`Y`) to run auth and launch UI.
+3. After install, choose guided setup (`Y`) to run auth and launch the gateway.
 
 What installer does:
 
@@ -47,8 +47,8 @@ social doctor
 # 3) Query test
 social query me --api facebook
 
-# 4) Launch Studio
-social studio
+# 4) Start gateway
+social gateway
 ```
 
 If `social` is not recognized in your current terminal, open a new terminal and retry.
@@ -64,7 +64,7 @@ social whatsapp ...    # WhatsApp API operations
 social ai "..."        # natural-language command interface
 social chat            # conversational chat agent
 social agent ...       # plan/execute agent workflows
-social studio          # localhost Studio web UI
+social gateway         # localhost API/WebSocket gateway
 social ops ...         # agency ops workflows + reports/handoff
 social hub ...         # package/connector trust + lifecycle
 ```
@@ -75,7 +75,7 @@ social hub ...         # package/connector trust + lifecycle
 - Example commands: `EXAMPLES.md`
 - AI interface details: `docs/AI_INTERFACE.md`
 - Chat agent details: `docs/CHAT_AGENT.md`
-- Gateway + Studio API/UI details: `docs/GATEWAY_UI.md`
+- Gateway API details: `docs/GATEWAY_UI.md`
 - Contributor guide: `CONTRIBUTING.md`
 - Publish/release maintainer flow: `SETUP_AND_PUBLISHING.md`
 

@@ -5,7 +5,7 @@ const { openUrl } = require('../lib/open-url');
 function registerGatewayCommands(program) {
   program
     .command('gateway')
-    .description('Run localhost UI + API gateway for conversational social API operations')
+    .description('Run localhost API gateway (no bundled frontend UI)')
     .option('--host <host>', 'Host address', '127.0.0.1')
     .option('--port <port>', 'Port number', '1310')
     .option('--api-key <key>', 'Gateway API key for protected access (header: x-gateway-key)')
@@ -30,11 +30,12 @@ function registerGatewayCommands(program) {
 
       const url = server.url();
       console.log(chalk.green('\nSocial API Gateway is running.'));
-      console.log(chalk.cyan(`UI: ${url}`));
+      console.log(chalk.cyan(`Gateway: ${url}`));
+      console.log(chalk.gray(`Health: ${url}/api/health`));
       console.log(chalk.gray('Press Ctrl+C to stop.\n'));
 
       if (opts.open) {
-        await openUrl(url);
+        await openUrl(`${url}/api/status`);
       }
 
       const shutdown = async () => {

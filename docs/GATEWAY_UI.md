@@ -1,36 +1,24 @@
-# Social API Gateway UI
+# Social API Gateway
 
 ## Command
 
 ```bash
-social gateway --open
-# or
-social studio
+social gateway
 ```
 
 ## Purpose
 
-`social gateway` runs a local HTTP server that combines:
+`social gateway` runs a local HTTP server that provides:
 
-- a conversational web UI (`web/studio/`)
 - a safe API gateway for chat operations
+- a WebSocket stream for live events
 
-This gives you a browser-first control surface while still executing through the same internal `social-cli` logic.
+Bundled `LOCALHOST GATEWAY` frontend UI has been removed from this repo.
 
 Supported workflow categories:
 
 - Marketing/content operations (posts, campaigns, analytics)
 - Developer operations (auth status, token debug, webhook subscription checks)
-
-UI sections:
-
-- `Chat`
-- `Posts`
-- `Analytics`
-- `Data Console`
-- `Config`
-- `Help`
-- `Settings`
 
 ## Endpoints
 
@@ -38,6 +26,7 @@ UI sections:
 - `GET /api/status`
 - `GET /api/sessions`
 - `GET /api/config`
+- `POST /api/config/update`
 - `POST /api/chat/start`
 - `POST /api/chat/message`
 - `POST /api/ai`
@@ -62,6 +51,3 @@ Sessions are persisted through the chat memory layer:
 
 - `commands/gateway.js`
 - `lib/gateway/server.js`
-- `web/studio/index.html`
-- `web/studio/styles.css`
-- `web/studio/app.js`

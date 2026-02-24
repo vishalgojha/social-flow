@@ -114,7 +114,6 @@ const opsCommands = require('../commands/ops');
 const hubCommands = require('../commands/hub');
 const tuiCommands = require('../commands/tui');
 const onboardCommands = require('../commands/onboard');
-const studioCommands = require('../commands/studio');
 const integrationsCommands = require('../commands/integrations');
 const policyCommands = require('../commands/policy');
 
@@ -139,7 +138,6 @@ opsCommands(program);
 hubCommands(program);
 tuiCommands(program);
 onboardCommands(program);
-studioCommands(program);
 integrationsCommands(program);
 policyCommands(program);
 
@@ -168,8 +166,7 @@ program.on('--help', () => {
   console.log(`  ${cmd('chat')}                    ` + chalk.gray('# Conversational multi-turn AI assistant'));
   console.log(`  ${cmd('tui')}                     ` + chalk.gray('# Agentic terminal dashboard (chat + approvals + replay)'));
   console.log(`  ${cmd('hatch')}                   ` + chalk.gray('# Alias of tui (terminal agent chat)'));
-  console.log(`  ${cmd('gateway --open')}          ` + chalk.gray('# Social API Gateway web UI + API gateway'));
-  console.log(`  ${cmd('studio')}                  ` + chalk.gray('# Social Studio (web UI command alias)'));
+  console.log(`  ${cmd('gateway')}                 ` + chalk.gray('# Social API Gateway (API + WebSocket only)'));
   console.log(`  ${cmd('integrations connect waba')}  ` + chalk.gray('# Guided WABA integration setup + checks'));
   console.log(`  ${cmd('policy preflight "send whatsapp promo"')}  ` + chalk.gray('# Region-aware policy checks before execution'));
   console.log(`  ${cmd('ops morning-run --all-workspaces --spend 320')}  ` + chalk.gray('# Morning agency ops checks + approvals'));
