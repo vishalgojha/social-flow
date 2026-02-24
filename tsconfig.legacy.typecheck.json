@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": false,
+    "moduleDetection": "force",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": [
+    "bin/**/*.ts",
+    "scripts/**/*.ts",
+    "index.ts"
+  ],
+  "exclude": [
+    "dist-legacy/**",
+    "dist-runtime/**",
+    "dist-social/**",
+    "node_modules/**",
+    "socialclaw-core/**",
+    "tools/agentic-tui/**"
+  ]
+}

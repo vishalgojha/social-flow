@@ -9,16 +9,22 @@
   "scripts": {
     "lint": "eslint --max-warnings=0 --no-error-on-unmatched-pattern bin commands lib test scripts",
     "copy:legacy-assets": "node dist-legacy/scripts/copy-legacy-assets.js",
-    "build": "npm run build:legacy-ts && npm run build:runtime-ts && npm run build:social-ts",
-    "build:legacy-ts": "tsc -p tsconfig.legacy.json && npm run copy:legacy-assets",
-    "build:runtime-ts": "tsc -p tsconfig.runtime.json",
-    "build:tooling-ts": "tsc -p tsconfig.tooling.json",
+    "clean:legacy": "node -e \"require('node:fs').rmSync('dist-legacy',{recursive:true,force:true})\"",
+    "clean:runtime": "node -e \"require('node:fs').rmSync('dist-runtime',{recursive:true,force:true})\"",
+    "clean:social": "node -e \"require('node:fs').rmSync('dist-social',{recursive:true,force:true})\"",
+    "clean:tooling": "node -e \"require('node:fs').rmSync('.tmp-ts-run',{recursive:true,force:true})\"",
+    "clean": "npm run clean:legacy && npm run clean:runtime && npm run clean:social && npm run clean:tooling",
+    "build": "npm run clean && npm run build:legacy-ts && npm run build:runtime-ts && npm run build:social-ts",
+    "build:legacy-ts": "npm run clean:legacy && tsc -p tsconfig.legacy.json && npm run copy:legacy-assets",
+    "build:runtime-ts": "npm run clean:runtime && tsc -p tsconfig.runtime.json",
+    "build:tooling-ts": "npm run clean:tooling && tsc -p tsconfig.tooling.json",
+    "typecheck:legacy-entrypoints": "tsc -p tsconfig.legacy.typecheck.json",
     "test": "npm run build:legacy-ts && node dist-legacy/test/run.js",
-    "build:social-ts": "tsc -p tsconfig.social.json",
+    "build:social-ts": "npm run clean:social && tsc -p tsconfig.social.json",
     "test:social-ts": "npm run build:social-ts && node dist-social/tests/intent-parser.test.js",
     "smoke:release": "npm run build:legacy-ts && node dist-legacy/scripts/release-smoke.js",
     "ts:migration-guard": "npm run build:legacy-ts && node dist-legacy/scripts/ts-migration-guard.js",
-    "quality:check": "npm run ts:migration-guard && npm run build:runtime-ts && npm run lint && npm run test:social-ts && npm run smoke:release",
+    "quality:check": "npm run ts:migration-guard && npm run build:runtime-ts && npm run lint && npm run typecheck:legacy-entrypoints && npm test && npm run test:social-ts && npm run smoke:release",
     "start": "node bin/social.js gateway",
     "prepack": "npm run build:legacy-ts && npm run build:runtime-ts && npm run build:social-ts",
     "social:dev": "tsx cli/index.ts",
@@ -76,6 +82,6 @@
     "typescript": "^5.7.2"
   },
   "engines": {
-    "node": ">=25.0.0"
+    "node": "25.x"
   }
 }

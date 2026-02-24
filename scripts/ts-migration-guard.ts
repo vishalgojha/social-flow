@@ -5,7 +5,7 @@ const path = require('node:path');
 
 const rootFromDist = path.resolve(__dirname, '..', '..');
 const rootFromSource = path.resolve(__dirname, '..');
-const repoRoot = fs.existsSync(path.join(rootFromSource, 'scripts', 'ts-migration-baseline.json'))
+const repoRoot = fs.existsSync(path.join(rootFromSource, 'tsconfig.legacy.json'))
   ? rootFromSource
   : rootFromDist;
 const baselinePath = path.resolve(repoRoot, 'scripts', 'ts-migration-baseline.json');

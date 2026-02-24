@@ -4,6 +4,7 @@
     "bin",
     "commands",
     "lib",
+    "src-runtime",
     "scripts",
     "test",
     "tests",
