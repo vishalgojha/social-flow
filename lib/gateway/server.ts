@@ -442,6 +442,42 @@ function isLoopbackHost(v) {
   return host === '127.0.0.1' || host === 'localhost' || host === '::1';
 }
 
+function normalizeFsPathForCompare(v) {
+  const resolved = path.resolve(String(v || ''));
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function isPathInsideRoot(root, target) {
+  const base = normalizeFsPathForCompare(root);
+  const candidate = normalizeFsPathForCompare(target);
+  if (!base || !candidate) return false;
+  if (base === candidate) return true;
+  const rel = path.relative(base, candidate);
+  return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+function gatewayRoots() {
+  const roots = [
+    path.resolve(process.cwd()),
+    process.env.SOCIAL_CLI_HOME ? path.resolve(process.env.SOCIAL_CLI_HOME) : '',
+    process.env.META_CLI_HOME ? path.resolve(process.env.META_CLI_HOME) : ''
+  ].filter(Boolean);
+  return [...new Set(roots.map((x) => normalizeFsPathForCompare(x)))];
+}
+
+function resolveSafeOutDir(rawPath, fallbackRelative) {
+  const fallback = String(fallbackRelative || 'reports').trim() || 'reports';
+  const input = String(rawPath || '').trim();
+  const candidate = input
+    ? (path.isAbsolute(input) ? path.resolve(input) : path.resolve(process.cwd(), input))
+    : path.resolve(process.cwd(), fallback);
+  const allowed = gatewayRoots().some((root) => isPathInsideRoot(root, candidate));
+  if (!allowed) {
+    throw new Error('Output path must be inside allowed gateway roots.');
+  }
+  return candidate;
+}
+
 function normalizeGuardMode(v) {
   const mode = String(v || '').trim().toLowerCase();
   if (GUARD_MODES.has(mode)) return mode;
@@ -820,49 +856,106 @@ class GatewayServer {
     return true;
   }
 
-  providedGatewayKey(req) {
+  hasConfiguredRoles() {
+    const rolesDoc = opsStorage.getRoles();
+    const users = rolesDoc && rolesDoc.users && typeof rolesDoc.users === 'object'
+      ? rolesDoc.users
+      : {};
+    return Object.keys(users).length > 0;
+  }
+
+  canBootstrapRoles(req) {
+    if (!this.isLocalBind() || !this.isLocalClient(req)) return false;
+    return !this.hasConfiguredRoles();
+  }
+
+  providedGatewayKey(req, parsedUrl = null) {
     const keyHeader = String(req.headers['x-gateway-key'] || '').trim();
     if (keyHeader) return keyHeader;
     const auth = String(req.headers.authorization || '').trim();
     if (/^bearer\s+/i.test(auth)) return auth.replace(/^bearer\s+/i, '').trim();
+    if (parsedUrl && parsedUrl.searchParams) {
+      const byQuery = String(
+        parsedUrl.searchParams.get('gatewayKey') ||
+        parsedUrl.searchParams.get('apiKey') ||
+        ''
+      ).trim();
+      if (byQuery) return byQuery;
+    }
     return '';
   }
 
-  authorizeApi(req, res, route) {
-    if (!this.isApiRoute(route) || this.routeIsPublicApi(route)) return true;
-
+  gatewayAccessDecision(req, provided) {
     const isLocalRequest = this.isLocalClient(req);
-    const provided = this.providedGatewayKey(req);
-
     if (!this.apiKey) {
-      if (!this.requireApiKey && this.isLocalBind() && isLocalRequest) return true;
-      if (!isLocalRequest || !this.isLocalBind()) {
-        sendJson(res, 503, {
-          ok: false,
-          error: 'Gateway API key is required for non-local access. Set SOCIAL_GATEWAY_API_KEY.'
-        });
-        return false;
+      if (!this.requireApiKey && this.isLocalBind() && isLocalRequest) {
+        return { ok: true };
       }
-      sendJson(res, 503, {
+      if (!isLocalRequest || !this.isLocalBind()) {
+        return {
+          ok: false,
+          status: 503,
+          error: 'Gateway API key is required for non-local access. Set SOCIAL_GATEWAY_API_KEY.'
+        };
+      }
+      return {
         ok: false,
+        status: 503,
         error: 'Gateway API key required. Set SOCIAL_GATEWAY_API_KEY.'
-      });
-      return false;
+      };
     }
 
     if (provided && provided !== this.apiKey) {
-      sendJson(res, 401, { ok: false, error: 'Unauthorized. Invalid x-gateway-key.' });
-      return false;
+      return { ok: false, status: 401, error: 'Unauthorized. Invalid x-gateway-key.' };
     }
 
     if (this.requireApiKey || !isLocalRequest || !this.isLocalBind()) {
       if (provided !== this.apiKey) {
-        sendJson(res, 401, { ok: false, error: 'Unauthorized. Provide x-gateway-key.' });
-        return false;
+        return { ok: false, status: 401, error: 'Unauthorized. Provide x-gateway-key.' };
       }
     }
 
+    return { ok: true };
+  }
+
+  authorizeApi(req, res, route, parsedUrl = null) {
+    if (!this.isApiRoute(route) || this.routeIsPublicApi(route)) return true;
+
+    const provided = this.providedGatewayKey(req, parsedUrl);
+    const decision = this.gatewayAccessDecision(req, provided);
+    if (!decision.ok) {
+      sendJson(res, decision.status || 401, { ok: false, error: decision.error || 'Unauthorized.' });
+      return false;
+    }
     return true;
+  }
+
+  providedSessionId(req, parsedUrl = null) {
+    const byHeader = String(req.headers['x-session-id'] || '').trim();
+    if (byHeader) return byHeader;
+    if (parsedUrl && parsedUrl.searchParams) {
+      const byQuery = String(parsedUrl.searchParams.get('sessionId') || '').trim();
+      if (byQuery) return byQuery;
+    }
+    return '';
+  }
+
+  authorizeWsUpgrade(req, parsedUrl) {
+    const origin = String(req.headers.origin || '').trim();
+    if (origin && !this.isAllowedOrigin(origin)) {
+      return { ok: false, status: 403, error: 'Origin not allowed.' };
+    }
+
+    const provided = this.providedGatewayKey(req, parsedUrl);
+    const access = this.gatewayAccessDecision(req, provided);
+    if (!access.ok) return access;
+
+    const sessionId = this.providedSessionId(req, parsedUrl);
+    if (!sessionId) {
+      return { ok: false, status: 400, error: 'Missing sessionId for websocket connection.' };
+    }
+
+    return { ok: true, sessionId };
   }
 
   shouldRateLimit(req, route) {
@@ -971,9 +1064,12 @@ class GatewayServer {
 
   broadcastWs(type, payload = {}) {
     if (!this.wsClients.size) return;
+    const targetSessionId = String(payload.sessionId || '').trim();
     const msg = this.wsPayload(type, payload);
     for (const ws of this.wsClients) {
       if (!ws || ws.readyState !== 1) continue;
+      const wsSessionId = String(ws.sessionId || '').trim();
+      if (targetSessionId && wsSessionId !== targetSessionId) continue;
       try {
         ws.send(msg);
       } catch {
@@ -1184,18 +1280,26 @@ class GatewayServer {
     if (req.method === 'POST' && route === '/api/team/operator') {
       try {
         const body = await readBody(req);
+        const workspace = body.workspace || config.getActiveProfile() || 'default';
         const id = String(body.id || '').trim();
         const name = String(body.name || '').trim();
         if (!id) {
           sendJson(res, 400, { ok: false, error: 'Missing operator id.' });
           return;
         }
+        const actor = resolveRequestActor().id;
+        let bootstrapped = false;
+        if (this.canBootstrapRoles(req)) {
+          opsStorage.setRole({ workspace, user: id, role: 'owner' });
+          bootstrapped = true;
+        } else {
+          opsRbac.assertCan({ workspace, action: 'admin', user: actor });
+        }
         const operator = typeof config.setOperator === 'function'
           ? config.setOperator({ id, name })
           : { id, name };
-        const workspace = body.workspace || config.getActiveProfile() || 'default';
         const role = opsStorage.getRole({ workspace, user: operator.id });
-        sendJson(res, 200, { ok: true, workspace, operator, role });
+        sendJson(res, 200, { ok: true, workspace, operator, role, bootstrapped });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: String(error?.message || error || '') });
       }
@@ -1204,10 +1308,16 @@ class GatewayServer {
 
     if (req.method === 'POST' && route === '/api/team/operator/clear') {
       try {
+        const body = await readBody(req);
+        const workspace = body.workspace || config.getActiveProfile() || 'default';
+        const actor = resolveRequestActor().id;
+        if (!this.canBootstrapRoles(req)) {
+          opsRbac.assertCan({ workspace, action: 'admin', user: actor });
+        }
         if (typeof config.clearOperator === 'function') {
           config.clearOperator();
         }
-        sendJson(res, 200, { ok: true });
+        sendJson(res, 200, { ok: true, workspace });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: String(error?.message || error || '') });
       }
@@ -1244,16 +1354,16 @@ class GatewayServer {
           ? rolesDoc.users
           : {};
         const roles = Object.entries(usersMap).map(([user, entry]) => {
-          const globalRole = String((entry && entry.globalRole) || 'owner').trim().toLowerCase();
+          const globalRole = String((entry && entry.globalRole) || 'viewer').trim().toLowerCase();
           const workspaceRole = String((entry && entry.workspaces && entry.workspaces[workspace]) || '').trim().toLowerCase();
-          const role = workspaceRole || globalRole || 'owner';
+          const role = workspaceRole || globalRole || 'viewer';
           const scope = workspaceRole ? 'workspace' : 'global';
           return {
             user,
             role,
             scope,
             workspace,
-            globalRole: globalRole || 'owner',
+            globalRole: globalRole || 'viewer',
             workspaceRole: workspaceRole || ''
           };
         });
@@ -1398,12 +1508,14 @@ class GatewayServer {
     if (req.method === 'GET' && route === '/api/team/activity') {
       try {
         const workspace = parsedUrl.searchParams.get('workspace') || config.getActiveProfile() || 'default';
-        const actor = String(parsedUrl.searchParams.get('actor') || '').trim();
+        const requestActor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace, action: 'read', user: requestActor });
+        const actorFilter = String(parsedUrl.searchParams.get('actor') || '').trim();
         const limit = Math.max(1, Math.min(200, toNumber(parsedUrl.searchParams.get('limit'), 50)));
         const from = parseIsoDate(parsedUrl.searchParams.get('from'));
         const to = parseIsoDate(parsedUrl.searchParams.get('to'));
         let rows = opsStorage.listActionLog(workspace);
-        if (actor) rows = rows.filter((x) => String(x.actor || '') === actor);
+        if (actorFilter) rows = rows.filter((x) => String(x.actor || '') === actorFilter);
         if (from) rows = rows.filter((x) => Number.isFinite(Date.parse(x.createdAt || '')) && Date.parse(x.createdAt) >= Number(from));
         if (to) rows = rows.filter((x) => Number.isFinite(Date.parse(x.createdAt || '')) && Date.parse(x.createdAt) <= Number(to));
         rows = rows.slice(-limit).reverse();
@@ -1417,13 +1529,15 @@ class GatewayServer {
     if (req.method === 'GET' && route === '/api/team/activity/export') {
       try {
         const workspace = parsedUrl.searchParams.get('workspace') || config.getActiveProfile() || 'default';
-        const actor = String(parsedUrl.searchParams.get('actor') || '').trim();
+        const requestActor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace, action: 'read', user: requestActor });
+        const actorFilter = String(parsedUrl.searchParams.get('actor') || '').trim();
         const format = String(parsedUrl.searchParams.get('format') || 'json').trim().toLowerCase();
         const limit = Math.max(1, Math.min(1000, toNumber(parsedUrl.searchParams.get('limit'), 200)));
         const from = parseIsoDate(parsedUrl.searchParams.get('from'));
         const to = parseIsoDate(parsedUrl.searchParams.get('to'));
         let rows = opsStorage.listActionLog(workspace);
-        if (actor) rows = rows.filter((x) => String(x.actor || '') === actor);
+        if (actorFilter) rows = rows.filter((x) => String(x.actor || '') === actorFilter);
         if (from) rows = rows.filter((x) => Number.isFinite(Date.parse(x.createdAt || '')) && Date.parse(x.createdAt) >= Number(from));
         if (to) rows = rows.filter((x) => Number.isFinite(Date.parse(x.createdAt || '')) && Date.parse(x.createdAt) <= Number(to));
         rows = rows.slice(-limit).reverse();
@@ -1445,7 +1559,7 @@ class GatewayServer {
           workspace,
           exportedAt: new Date().toISOString(),
           filters: {
-            actor: actor || '',
+            actor: actorFilter || '',
             from: from ? from.toISOString() : '',
             to: to ? to.toISOString() : '',
             limit
@@ -1649,8 +1763,10 @@ class GatewayServer {
     }
 
     if (req.method === 'POST' && route === '/api/chat/message') {
+      let sessionId = '';
       try {
         const body = await readBody(req);
+        sessionId = String(body.sessionId || '').trim();
         const msg = String(body.message || '').trim();
         if (!msg) {
           sendJson(res, 400, { ok: false, error: 'Missing message.' });
@@ -1661,15 +1777,20 @@ class GatewayServer {
         this.emitChatEvents(result);
         sendJson(res, 200, { ok: true, ...result });
       } catch (error) {
-        this.broadcastWs('error', { message: String(error?.message || error || '') });
+        this.broadcastWs('error', {
+          sessionId,
+          message: String(error?.message || error || '')
+        });
         sendJson(res, 500, { ok: false, error: String(error?.message || error || '') });
       }
       return;
     }
 
     if (req.method === 'POST' && route === '/api/ai') {
+      let sessionId = '';
       try {
         const body = await readBody(req);
+        sessionId = String(body.sessionId || '').trim();
         const msg = String(body.message || '').trim();
         if (!msg) {
           sendJson(res, 400, { ok: false, error: 'Missing message.' });
@@ -1680,15 +1801,20 @@ class GatewayServer {
         this.emitChatEvents(result);
         sendJson(res, 200, { ok: true, ...result });
       } catch (error) {
-        this.broadcastWs('error', { message: String(error?.message || error || '') });
+        this.broadcastWs('error', {
+          sessionId,
+          message: String(error?.message || error || '')
+        });
         sendJson(res, 500, { ok: false, error: String(error?.message || error || '') });
       }
       return;
     }
 
     if (req.method === 'POST' && route === '/api/execute') {
+      let sessionId = '';
       try {
         const body = await readBody(req);
+        sessionId = String(body.sessionId || '').trim();
         const plan = body.plan && Array.isArray(body.plan.steps) ? body.plan.steps : [];
         if (!plan.length) {
           sendJson(res, 400, { ok: false, error: 'Missing plan.steps.' });
@@ -1727,7 +1853,10 @@ class GatewayServer {
           timeline: runtime.context.getTimeline(120)
         });
       } catch (error) {
-        this.broadcastWs('error', { message: String(error?.message || error || '') });
+        this.broadcastWs('error', {
+          sessionId,
+          message: String(error?.message || error || '')
+        });
         sendJson(res, 500, { ok: false, error: String(error?.message || error || '') });
       }
       return;
@@ -1745,6 +1874,8 @@ class GatewayServer {
     if (req.method === 'GET' && route === '/api/ops/summary') {
       try {
         const workspace = parsedUrl.searchParams.get('workspace') || '';
+        const actor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace: workspace || config.getActiveProfile() || 'default', action: 'read', user: actor });
         sendJson(res, 200, {
           ok: true,
           ...opsSummary(workspace)
@@ -1859,7 +1990,7 @@ class GatewayServer {
         const actor = resolveRequestActor().id;
         opsRbac.assertCan({ workspace, action: 'read', user: actor });
         const days = Math.max(1, Math.min(30, toNumber(body.days, 7)));
-        const outDir = path.resolve(process.cwd(), String(body.outDir || 'reports'));
+        const outDir = resolveSafeOutDir(body.outDir, 'reports');
         fs.mkdirSync(outDir, { recursive: true });
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
         const outPath = path.join(outDir, `${workspace}-weekly-${stamp}.md`);
@@ -1881,15 +2012,16 @@ class GatewayServer {
       try {
         const body = await readBody(req);
         const workspace = body.workspace || config.getActiveProfile() || 'default';
+        const actor = resolveRequestActor().id;
         const template = normalizeHandoffTemplate(body.template || 'agency');
         if (!template) {
           sendJson(res, 400, { ok: false, error: 'Invalid template. Use simple, agency, enterprise.' });
           return;
         }
-        opsRbac.assertCan({ workspace, action: 'read' });
+        opsRbac.assertCan({ workspace, action: 'read', user: actor });
         const generatedAt = new Date().toISOString();
         const runAtIso = toIsoOrFallback(body.runAt, generatedAt);
-        const outDir = path.resolve(process.cwd(), String(body.outDir || `handoff-${workspace}`));
+        const outDir = resolveSafeOutDir(body.outDir, `handoff-${workspace}`);
         fs.mkdirSync(outDir, { recursive: true });
         const files = {
           handoff: path.join(outDir, 'handoff.md'),
@@ -1918,18 +2050,17 @@ class GatewayServer {
 
     if (req.method === 'GET' && route === '/api/ops/handoff/file') {
       try {
+        const workspace = parsedUrl.searchParams.get('workspace') || config.getActiveProfile() || 'default';
+        const actor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace, action: 'read', user: actor });
         const rawPath = String(parsedUrl.searchParams.get('path') || '').trim();
         if (!rawPath) {
           sendJson(res, 400, { ok: false, error: 'Missing path.' });
           return;
         }
         const resolved = path.resolve(rawPath);
-        const allowRoots = [
-          path.resolve(process.cwd()),
-          process.env.SOCIAL_CLI_HOME ? path.resolve(process.env.SOCIAL_CLI_HOME) : '',
-          process.env.META_CLI_HOME ? path.resolve(process.env.META_CLI_HOME) : ''
-        ].filter(Boolean);
-        const allowed = allowRoots.some((root) => resolved.startsWith(root));
+        const allowRoots = gatewayRoots();
+        const allowed = allowRoots.some((root) => isPathInsideRoot(root, resolved));
         if (!allowed) {
           sendJson(res, 400, { ok: false, error: 'Path not allowed.' });
           return;
@@ -1953,6 +2084,8 @@ class GatewayServer {
     if (req.method === 'GET' && route === '/api/ops/alerts') {
       try {
         const workspace = parsedUrl.searchParams.get('workspace') || config.getActiveProfile() || 'default';
+        const actor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace, action: 'read', user: actor });
         const onlyOpen = toBool(parsedUrl.searchParams.get('open'), false);
         let alerts = opsStorage.listAlerts(workspace);
         if (onlyOpen) alerts = alerts.filter((x) => x.status === 'open');
@@ -1966,6 +2099,8 @@ class GatewayServer {
     if (req.method === 'GET' && route === '/api/ops/approvals') {
       try {
         const workspace = parsedUrl.searchParams.get('workspace') || config.getActiveProfile() || 'default';
+        const actor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace, action: 'read', user: actor });
         const onlyOpen = toBool(parsedUrl.searchParams.get('open'), false);
         let approvals = opsStorage.listApprovals(workspace);
         if (onlyOpen) approvals = approvals.filter((x) => x.status === 'pending');
@@ -1979,6 +2114,8 @@ class GatewayServer {
     if (req.method === 'GET' && route === '/api/ops/guard/policy') {
       try {
         const workspace = parsedUrl.searchParams.get('workspace') || config.getActiveProfile() || 'default';
+        const actor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace, action: 'read', user: actor });
         const guardPolicy = opsStorage.getGuardPolicy(workspace);
         sendJson(res, 200, { ok: true, workspace, guardPolicy });
       } catch (error) {
@@ -1991,6 +2128,8 @@ class GatewayServer {
       try {
         const body = await readBody(req);
         const workspace = body.workspace || config.getActiveProfile() || 'default';
+        const actor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace, action: 'guard_config', user: actor });
         const patch = guardPolicyPatchFromBody(body);
         const guardPolicy = opsStorage.setGuardPolicy(workspace, patch);
         sendJson(res, 200, {
@@ -2009,6 +2148,8 @@ class GatewayServer {
       try {
         const body = await readBody(req);
         const workspace = body.workspace || config.getActiveProfile() || 'default';
+        const actor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace, action: 'guard_config', user: actor });
         const mode = normalizeGuardMode(body.mode);
         if (!mode) {
           sendJson(res, 400, { ok: false, error: 'Invalid guard mode. Use observe, approval, or auto_safe.' });
@@ -2032,13 +2173,16 @@ class GatewayServer {
       try {
         const body = await readBody(req);
         const workspace = body.workspace || config.getActiveProfile() || 'default';
+        const actor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace, action: 'execute', user: actor });
         const spend = toNumber(body.spend, 0);
         const force = toBool(body.force, false);
         const result = opsWorkflows.runMorningOps({
           workspace,
           config,
           spend,
-          force
+          force,
+          actor
         });
         sendJson(res, 200, { ok: true, result, snapshot: opsSummary(workspace) });
       } catch (error) {
@@ -2051,7 +2195,9 @@ class GatewayServer {
       try {
         const body = await readBody(req);
         const workspace = body.workspace || config.getActiveProfile() || 'default';
-        const result = opsWorkflows.runDueSchedules({ workspace, config });
+        const actor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace, action: 'execute', user: actor });
+        const result = opsWorkflows.runDueSchedules({ workspace, config, actor });
         sendJson(res, 200, { ok: true, result, snapshot: opsSummary(workspace) });
       } catch (error) {
         sendJson(res, 400, { ok: false, error: String(error?.message || error || '') });
@@ -2063,6 +2209,8 @@ class GatewayServer {
       try {
         const body = await readBody(req);
         const workspace = body.workspace || config.getActiveProfile() || 'default';
+        const actor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace, action: 'write', user: actor });
         const id = String(body.id || '').trim();
         if (!id) {
           sendJson(res, 400, { ok: false, error: 'Missing alert id.' });
@@ -2109,6 +2257,8 @@ class GatewayServer {
     if (req.method === 'GET' && route === '/api/ops/sources') {
       try {
         const workspace = parsedUrl.searchParams.get('workspace') || config.getActiveProfile() || 'default';
+        const actor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace, action: 'read', user: actor });
         const sources = opsStorage.listSources(workspace);
         sendJson(res, 200, { ok: true, workspace, sources });
       } catch (error) {
@@ -2121,6 +2271,8 @@ class GatewayServer {
       try {
         const body = await readBody(req);
         const workspace = body.workspace || config.getActiveProfile() || 'default';
+        const actor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace, action: 'write', user: actor });
         const patch = sourcePatchFromBody(body);
         if (!patch.name) {
           sendJson(res, 400, { ok: false, error: 'Source name is required.' });
@@ -2142,6 +2294,8 @@ class GatewayServer {
       try {
         const body = await readBody(req);
         const workspace = body.workspace || config.getActiveProfile() || 'default';
+        const actor = resolveRequestActor().id;
+        opsRbac.assertCan({ workspace, action: 'execute', user: actor });
         let sourceIds = [];
         if (Array.isArray(body.sourceIds)) {
           sourceIds = body.sourceIds.map((x) => String(x || '').trim()).filter(Boolean);
@@ -2152,7 +2306,8 @@ class GatewayServer {
         const result = opsWorkflows.syncSources({
           workspace,
           sourceIds: sourceIds.length ? sourceIds : null,
-          config
+          config,
+          actor
         });
         sendJson(res, 200, { ok: true, workspace, result, snapshot: opsSummary(workspace) });
       } catch (error) {
@@ -2186,7 +2341,7 @@ class GatewayServer {
     if (parsedUrl.pathname.startsWith('/api/')) {
       const route = parsedUrl.pathname || '/';
       if (!this.applyCors(req, res, parsedUrl)) return;
-      if (!this.authorizeApi(req, res, route)) return;
+      if (!this.authorizeApi(req, res, route, parsedUrl)) return;
       if (!this.enforceRateLimit(req, res, parsedUrl)) return;
       await this.handleApi(req, res, parsedUrl);
       return;
@@ -2202,9 +2357,14 @@ class GatewayServer {
       });
     });
     this.wsServer = new WebSocketServer({ noServer: true });
-    this.wsServer.on('connection', (ws) => {
+    this.wsServer.on('connection', (ws, req) => {
+      const parsedUrl = new URL(req.url || '/', 'http://localhost');
+      ws.sessionId = this.providedSessionId(req, parsedUrl);
       this.wsClients.add(ws);
-      ws.send(this.wsPayload('output', { data: 'ws connected' }));
+      ws.send(this.wsPayload('output', {
+        sessionId: ws.sessionId,
+        data: 'ws connected'
+      }));
       ws.on('close', () => {
         this.wsClients.delete(ws);
       });
@@ -2219,6 +2379,12 @@ class GatewayServer {
           socket.destroy();
           return;
         }
+        const auth = this.authorizeWsUpgrade(req, parsedUrl);
+        if (!auth.ok) {
+          socket.destroy();
+          return;
+        }
+        req.headers['x-session-id'] = auth.sessionId;
         this.wsServer.handleUpgrade(req, socket, head, (ws) => {
           this.wsServer.emit('connection', ws, req);
         });

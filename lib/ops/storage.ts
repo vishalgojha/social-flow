@@ -931,7 +931,7 @@ function setRole({ workspace, user, role }) {
   if (!r) throw new Error('Role is required.');
   if (!ROLE_SET.has(r)) throw new Error(`Invalid role: ${r}`);
   const roles = getRoles();
-  roles.users[u] = roles.users[u] || { globalRole: 'owner', workspaces: {} };
+  roles.users[u] = roles.users[u] || { globalRole: 'viewer', workspaces: {} };
   if (ws) {
     roles.users[u].workspaces[ws] = r;
   } else {
@@ -1014,15 +1014,15 @@ function getRole({ workspace, user }) {
     const raw = String(value || '').trim().toLowerCase();
     if (raw === 'analyst') return 'admin';
     if (ROLE_SET.has(raw)) return raw;
-    return 'owner';
+    return 'viewer';
   };
   const ws = workspace ? sanitizeWorkspace(workspace) : '';
   const u = String(user || '').trim();
   const roles = getRoles();
   const entry = roles.users[u];
-  if (!entry) return 'owner';
+  if (!entry) return 'viewer';
   if (ws && entry.workspaces && entry.workspaces[ws]) return normalizeRole(entry.workspaces[ws]);
-  return normalizeRole(entry.globalRole || 'owner');
+  return normalizeRole(entry.globalRole || 'viewer');
 }
 
 module.exports = {
