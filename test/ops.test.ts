@@ -12,9 +12,19 @@ function withTempHome(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'social-ops-test-'));
   const prevSocial = process.env.SOCIAL_CLI_HOME;
   const prevMeta = process.env.META_CLI_HOME;
+  const prevSocialUser = process.env.SOCIAL_USER;
+  const prevOperator = typeof configSingleton.getOperator === 'function'
+    ? configSingleton.getOperator()
+    : { id: '', name: '' };
+  const testUser = 'ops-test-user';
   process.env.SOCIAL_CLI_HOME = dir;
   process.env.META_CLI_HOME = dir;
+  process.env.SOCIAL_USER = testUser;
+  if (typeof configSingleton.setOperator === 'function') {
+    configSingleton.setOperator({ id: testUser, name: 'Ops Test User' });
+  }
   if (typeof storage.resetCacheForTests === 'function') storage.resetCacheForTests();
+  storage.setRole({ user: testUser, role: 'owner' });
   try {
     return fn(dir);
   } finally {
@@ -23,6 +33,14 @@ function withTempHome(fn) {
     else process.env.SOCIAL_CLI_HOME = prevSocial;
     if (prevMeta === undefined) delete process.env.META_CLI_HOME;
     else process.env.META_CLI_HOME = prevMeta;
+    if (prevSocialUser === undefined) delete process.env.SOCIAL_USER;
+    else process.env.SOCIAL_USER = prevSocialUser;
+    if (typeof configSingleton.setOperator === 'function') {
+      configSingleton.setOperator({
+        id: String(prevOperator.id || ''),
+        name: String(prevOperator.name || '')
+      });
+    }
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
@@ -200,6 +218,7 @@ module.exports = [
       storage.setRole({ workspace: ws, user: 'u1', role: 'analyst' });
       const role = storage.getRole({ workspace: ws, user: 'u1' });
       assert.equal(role, 'admin');
+      assert.equal(storage.getRole({ workspace: ws, user: 'unknown-user' }), 'viewer');
       assert.equal(rbac.normalizeRole('analyst'), 'admin');
       assert.equal(rbac.roleChoices().includes('admin'), true);
       assert.throws(() => storage.setRole({ workspace: ws, user: 'u2', role: 'superadmin' }), /Invalid role/);

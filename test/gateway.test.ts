@@ -3,6 +3,7 @@ const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const WebSocket = require('ws');
 const { createGatewayServer } = require('../lib/gateway/server');
 const config = require('../lib/config');
 const opsStorage = require('../lib/ops/storage');
@@ -116,6 +117,28 @@ function clearAgentApiConfig() {
   if (typeof config.setAgentApiKey === 'function') {
     config.setAgentApiKey('');
   }
+}
+
+function connectWs(url) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    const timer = setTimeout(() => {
+      ws.terminate();
+      reject(new Error(`WS connect timeout: ${url}`));
+    }, 2000);
+    ws.once('open', () => {
+      clearTimeout(timer);
+      resolve(ws);
+    });
+    ws.once('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 module.exports = [
@@ -377,6 +400,163 @@ module.exports = [
     }
   },
   {
+    name: 'gateway team operator route bootstraps local owner then enforces admin role',
+    fn: async () => {
+      const oldHome = process.env.META_CLI_HOME;
+      const oldSocialHome = process.env.SOCIAL_CLI_HOME;
+      const oldSocialUser = process.env.SOCIAL_USER;
+      const oldOperator = typeof config.getOperator === 'function'
+        ? config.getOperator()
+        : { id: '', name: '' };
+      const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-gw-test-'));
+      process.env.META_CLI_HOME = tempHome;
+      process.env.SOCIAL_CLI_HOME = tempHome;
+      process.env.SOCIAL_USER = 'local-user';
+
+      const server = createGatewayServer({ host: '127.0.0.1', port: 0 });
+      try {
+        await server.start();
+
+        const bootstrap = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/team/operator',
+          body: { workspace: 'default', id: 'owner_1', name: 'Owner One' }
+        });
+        assert.equal(bootstrap.status, 200);
+        assert.equal(bootstrap.data.ok, true);
+        assert.equal(bootstrap.data.bootstrapped, true);
+        assert.equal(opsStorage.getRole({ workspace: 'default', user: 'owner_1' }), 'owner');
+
+        opsStorage.setRole({ workspace: 'default', user: 'local-user', role: 'viewer' });
+        const setViewerOperator = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/team/operator',
+          body: { workspace: 'default', id: 'local-user', name: 'Local Viewer' }
+        });
+        assert.equal(setViewerOperator.status, 200);
+        assert.equal(setViewerOperator.data.ok, true);
+
+        const clearOperator = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/team/operator/clear',
+          body: { workspace: 'default' }
+        });
+        assert.equal(clearOperator.status, 400);
+        assert.equal(clearOperator.data.ok, false);
+        assert.equal(String(clearOperator.data.error || '').includes('Permission denied'), true);
+
+        opsStorage.setRole({ workspace: 'default', user: 'local-user', role: 'owner' });
+        const clearByOwner = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/team/operator/clear',
+          body: { workspace: 'default' }
+        });
+        assert.equal(clearByOwner.status, 200);
+        assert.equal(clearByOwner.data.ok, true);
+
+        const setByOwner = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/team/operator',
+          body: { workspace: 'default', id: 'owner_2', name: 'Owner Two' }
+        });
+        assert.equal(setByOwner.status, 200);
+        assert.equal(setByOwner.data.ok, true);
+        assert.equal(setByOwner.data.bootstrapped, false);
+      } finally {
+        await server.stop();
+        process.env.META_CLI_HOME = oldHome;
+        process.env.SOCIAL_CLI_HOME = oldSocialHome;
+        if (oldSocialUser === undefined) delete process.env.SOCIAL_USER;
+        else process.env.SOCIAL_USER = oldSocialUser;
+        if (typeof config.setOperator === 'function') {
+          config.setOperator({
+            id: String(oldOperator.id || ''),
+            name: String(oldOperator.name || '')
+          });
+        }
+      }
+    }
+  },
+  {
+    name: 'gateway websocket upgrade enforces api key and session isolation',
+    fn: async () => {
+      const oldHome = process.env.META_CLI_HOME;
+      process.env.META_CLI_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-gw-test-'));
+      const server = createGatewayServer({
+        host: '127.0.0.1',
+        port: 0,
+        apiKey: 'ws-secret',
+        requireApiKey: true
+      });
+      try {
+        await server.start();
+
+        const denied = await new Promise((resolve) => {
+          const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws?sessionId=s-denied`);
+          let opened = false;
+          ws.once('open', () => {
+            opened = true;
+            ws.close();
+          });
+          ws.once('close', () => resolve(!opened));
+          ws.once('error', () => {});
+          setTimeout(() => resolve(!opened), 1200);
+        });
+        assert.equal(denied, true);
+
+        const ws = await connectWs(`ws://127.0.0.1:${server.port}/ws?sessionId=s-1&gatewayKey=ws-secret`);
+        ws.close();
+
+        const ws1 = await connectWs(`ws://127.0.0.1:${server.port}/ws?sessionId=s-1&gatewayKey=ws-secret`);
+        const ws2 = await connectWs(`ws://127.0.0.1:${server.port}/ws?sessionId=s-2&gatewayKey=ws-secret`);
+        const messages1 = [];
+        const messages2 = [];
+        ws1.on('message', (buf) => {
+          try {
+            messages1.push(JSON.parse(String(buf)));
+          } catch {
+            // ignore malformed test payloads
+          }
+        });
+        ws2.on('message', (buf) => {
+          try {
+            messages2.push(JSON.parse(String(buf)));
+          } catch {
+            // ignore malformed test payloads
+          }
+        });
+        await wait(120);
+        messages1.length = 0;
+        messages2.length = 0;
+
+        const chatRes = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/chat/message',
+          headers: { 'X-Gateway-Key': 'ws-secret' },
+          body: { sessionId: 's-1', message: 'hello' }
+        });
+        assert.equal(chatRes.status, 200);
+        assert.equal(chatRes.data.ok, true);
+        await wait(300);
+
+        assert.equal(messages1.some((x) => x.sessionId === 's-1' && x.type === 'output'), true);
+        assert.equal(messages2.some((x) => x.sessionId === 's-1'), false);
+
+        ws1.close();
+        ws2.close();
+      } finally {
+        await server.stop();
+        process.env.META_CLI_HOME = oldHome;
+      }
+    }
+  },
+  {
     name: 'gateway chat endpoints create session and process message',
     fn: async () => {
       const oldHome = process.env.META_CLI_HOME;
@@ -564,6 +744,9 @@ module.exports = [
       const oldHome = process.env.META_CLI_HOME;
       const oldSocialHome = process.env.SOCIAL_CLI_HOME;
       const oldSocialUser = process.env.SOCIAL_USER;
+      const oldOperator = typeof config.getOperator === 'function'
+        ? config.getOperator()
+        : { id: '', name: '' };
       const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-gw-test-'));
       process.env.META_CLI_HOME = tempHome;
       process.env.SOCIAL_CLI_HOME = tempHome;
@@ -572,6 +755,10 @@ module.exports = [
       const server = createGatewayServer({ host: '127.0.0.1', port: 0 });
       try {
         await server.start();
+        if (typeof config.setOperator === 'function') {
+          config.setOperator({ id: 'local-user', name: 'Local User' });
+        }
+        opsStorage.setRole({ workspace: 'default', user: 'local-user', role: 'owner' });
 
         const summary1 = await requestJson({
           port: server.port,
@@ -795,6 +982,17 @@ module.exports = [
         assert.equal(String(fileDownload.headers['content-disposition'] || '').includes('handoff.md'), true);
         assert.equal(String(fileDownload.raw || '').includes('# Social CLI Agency Handoff - default'), true);
 
+        const outsidePath = path.join(os.tmpdir(), 'gateway-outside-file.txt');
+        fs.writeFileSync(outsidePath, 'outside', 'utf8');
+        const deniedOutside = await requestJson({
+          port: server.port,
+          method: 'GET',
+          pathName: `/api/ops/handoff/file?workspace=default&path=${encodeURIComponent(outsidePath)}`
+        });
+        assert.equal(deniedOutside.status, 400);
+        assert.equal(deniedOutside.data.ok, false);
+        assert.equal(String(deniedOutside.data.error || '').includes('Path not allowed'), true);
+
         const setViewerRole = await requestJson({
           port: server.port,
           method: 'POST',
@@ -916,6 +1114,12 @@ module.exports = [
         process.env.SOCIAL_CLI_HOME = oldSocialHome;
         if (oldSocialUser === undefined) delete process.env.SOCIAL_USER;
         else process.env.SOCIAL_USER = oldSocialUser;
+        if (typeof config.setOperator === 'function') {
+          config.setOperator({
+            id: String(oldOperator.id || ''),
+            name: String(oldOperator.name || '')
+          });
+        }
       }
     }
   }

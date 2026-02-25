@@ -352,6 +352,8 @@ module.exports = [
     name: 'chat agent executes ops summary specialist tool',
     fn: async () => {
       const ws = `chat_ops_exec_${Date.now()}`;
+      const actor = process.env.SOCIAL_USER || process.env.USER || process.env.USERNAME || 'local-user';
+      opsStorage.setRole({ workspace: ws, user: actor, role: 'owner' });
       const ctx = new ConversationContext();
       const agent = new AutonomousAgent({
         context: ctx,
@@ -372,6 +374,8 @@ module.exports = [
     name: 'chat agent executes connector sync specialist tool',
     fn: async () => {
       const ws = `chat_connector_${Date.now()}`;
+      const actor = process.env.SOCIAL_USER || process.env.USER || process.env.USERNAME || 'local-user';
+      opsStorage.setRole({ workspace: ws, user: actor, role: 'owner' });
       opsStorage.upsertSource(ws, {
         name: 'CSV Sync Source',
         connector: 'csv_upload',
