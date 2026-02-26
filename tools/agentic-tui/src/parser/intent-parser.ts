@@ -176,8 +176,11 @@ export function parseNaturalLanguage(input: string): ParseResult {
 
 export async function parseNaturalLanguageWithOptionalAi(input: string): Promise<ParseResult> {
   const raw = String(input || "").trim();
-  const shouldUseAi = raw.toLowerCase().startsWith("/ai ");
-  const cleanInput = shouldUseAi ? raw.slice(4).trim() : raw;
+  const explicitAi = raw.toLowerCase().startsWith("/ai ");
+  const cleanInput = explicitAi ? raw.slice(4).trim() : raw;
+  const autoAiEnabled = !/^(0|false|off|no)$/i.test(String(process.env.SOCIAL_TUI_AI_AUTO || "1"));
+  const hasApiKey = Boolean(String(process.env.SOCIAL_TUI_AI_API_KEY || process.env.OPENAI_API_KEY || "").trim());
+  const shouldUseAi = explicitAi || (autoAiEnabled && hasApiKey);
   if (!cleanInput) {
     return parseNaturalLanguage(cleanInput);
   }

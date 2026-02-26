@@ -77,6 +77,14 @@ function summarizeIntent(intent: ParsedIntent, risk: string, missing: string[]):
   return `Plan ready: action=${intent.action}, risk=${risk}${slots ? `, slots: ${slots}` : ""}${missing.length ? `, missing: ${missing.join(", ")}` : ""}`;
 }
 
+function formatToolCall(intent: ParsedIntent): string {
+  const args = Object.entries(intent.params || {})
+    .filter(([, value]) => String(value || "").trim().length > 0)
+    .map(([key, value]) => `${key}=${JSON.stringify(String(value))}`)
+    .join(", ");
+  return `tool_call: ${intent.action}(${args})`;
+}
+
 function explainPlan(intent: ParsedIntent | null, risk: string | null): string {
   if (!intent) return "No active plan yet. Send a request first.";
   const actionReason: Record<string, string> = {
@@ -212,6 +220,7 @@ function HatchRuntime(): JSX.Element {
         entry: newLog(res.ok ? "SUCCESS" : "ERROR", res.ok ? "Execution completed." : "Execution failed.")
       });
       await streamAssistantTurn(res.ok ? "Done. I executed that successfully." : "Execution failed. Check logs/results.");
+      await streamAssistantTurn(`tool_result: ${state.currentIntent.action} -> ${res.ok ? "ok" : "failed"}`);
       const summaryKeys = Object.keys(res.output || {}).slice(0, 5);
       await streamAssistantTurn(
         `Execution summary: queue=${current.id}, status=${res.ok ? "success" : "failed"}, output_keys=${summaryKeys.join(", ") || "none"}.`
@@ -255,6 +264,7 @@ function HatchRuntime(): JSX.Element {
     await streamPhase("Parsing intent");
     const parsed = await parseNaturalLanguageWithOptionalAi(raw);
     await streamPhase("Planning", parsed.intent.action);
+    await streamAssistantTurn(formatToolCall(parsed.intent));
     dispatch({
       type: "PARSE_READY",
       intent: parsed.intent,
@@ -439,8 +449,18 @@ function HatchRuntime(): JSX.Element {
     ads: !!config?.scopes.find((x) => x.includes("ads")) || !!config?.tokenMap.facebook
   };
   const connectedCount = [platformStatus.instagram, platformStatus.facebook, platformStatus.ads].filter(Boolean).length;
-  const aiProvider = process.env.SOCIAL_TUI_AI_PROVIDER || "deterministic";
-  const aiModel = process.env.SOCIAL_TUI_AI_MODEL || (aiProvider === "openai" ? "gpt-4o-mini" : aiProvider === "ollama" ? "qwen2.5:7b" : "n/a");
+  const aiProvider = process.env.SOCIAL_TUI_AI_VENDOR || process.env.SOCIAL_TUI_AI_PROVIDER || "deterministic";
+  const aiModel = process.env.SOCIAL_TUI_AI_MODEL || (
+    aiProvider === "openai"
+      ? "gpt-4o-mini"
+      : aiProvider === "openrouter"
+        ? "openai/gpt-4o-mini"
+        : aiProvider === "xai"
+          ? "grok-2-latest"
+          : aiProvider === "ollama"
+            ? "qwen2.5:7b"
+            : "n/a"
+  );
   const aiLabel = `${aiProvider}/${aiModel}`;
   const riskTone = state.currentRisk === "HIGH" ? theme.error : state.currentRisk === "MEDIUM" ? theme.warning : theme.success;
   const phaseTone = state.phase === "EXECUTING" ? theme.accent : state.phase === "REJECTED" ? theme.warning : theme.text;
