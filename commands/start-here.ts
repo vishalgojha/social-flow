@@ -1,6 +1,7 @@
 const path = require('path');
 const { spawn } = require('child_process');
 const chalk = require('chalk');
+const ora = require('ora');
 const inquirer = require('inquirer');
 const config = require('../lib/config');
 const { renderPanel, kv, formatBadge, mint } = require('../lib/ui/chrome');
@@ -19,19 +20,46 @@ function providerMeta(provider) {
   return PROVIDER_CHOICES.find((x) => x.value === normalized) || PROVIDER_CHOICES[0];
 }
 
-function runSubprocess(args) {
+function runSubprocess(args, opts = {}) {
+  const capture = Boolean(opts.capture);
   return new Promise((resolve, reject) => {
     const binPath = path.join(__dirname, '..', 'bin', 'social.js');
     const child = spawn(process.execPath, [binPath, '--no-banner', ...args], {
-      stdio: 'inherit',
+      stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
       env: process.env
     });
+
+    let stdout = '';
+    let stderr = '';
+    if (capture) {
+      child.stdout.on('data', (chunk) => { stdout += String(chunk); });
+      child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+    }
+
     child.on('error', reject);
     child.on('close', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`social ${args.join(' ')} exited with code ${code}`));
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      const error = new Error(`social ${args.join(' ')} exited with code ${code}`);
+      error.stdout = stdout;
+      error.stderr = stderr;
+      reject(error);
     });
   });
+}
+
+function makeSpinner(text) {
+  if (!process.stdout.isTTY) return null;
+  return ora({ text }).start();
+}
+
+function flushCaptured(output) {
+  const out = String(output?.stdout || '');
+  const err = String(output?.stderr || '');
+  if (out) process.stdout.write(out);
+  if (err) process.stderr.write(err);
 }
 
 function printStartHereHeader(profile, defaultApi, hasToken, hasAgent) {
@@ -189,7 +217,16 @@ function registerStartHereCommand(program) {
       await runSubprocess(setupArgs);
 
       console.log(chalk.cyan('[2/2] Verifying runtime + readiness\n'));
-      await runSubprocess(['status']);
+      const verifySpinner = makeSpinner('Checking runtime + readiness...');
+      try {
+        const verifyOut = await runSubprocess(['status'], { capture: true });
+        if (verifySpinner) verifySpinner.succeed('Runtime + readiness check complete');
+        flushCaptured(verifyOut);
+      } catch (error) {
+        if (verifySpinner) verifySpinner.fail('Runtime + readiness check failed');
+        flushCaptured(error);
+        throw error;
+      }
 
       console.log(chalk.green('Start-here flow complete.'));
       console.log(chalk.gray(`Next: ${mint('social hatch')} for conversational operations, or ${mint('social studio')} for browser status.\n`));

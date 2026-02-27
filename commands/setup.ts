@@ -2,6 +2,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const inquirer = require('inquirer');
 const chalk = require('chalk');
+const ora = require('ora');
 const config = require('../lib/config');
 const packageJson = require('../package.json');
 const { renderPanel, formatBadge, kv } = require('../lib/ui/chrome');
@@ -9,19 +10,46 @@ const { buildReadinessReport } = require('../lib/readiness');
 const { startGatewayBackground } = require('../lib/gateway/manager');
 const { buildGuidanceState, printGuidancePanel } = require('../lib/guidance');
 
-function runSubprocess(args) {
+function runSubprocess(args, opts = {}) {
+  const capture = Boolean(opts.capture);
   return new Promise((resolve, reject) => {
     const binPath = path.join(__dirname, '..', 'bin', 'social.js');
     const child = spawn(process.execPath, [binPath, '--no-banner', ...args], {
-      stdio: 'inherit',
+      stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
       env: process.env
     });
+
+    let stdout = '';
+    let stderr = '';
+    if (capture) {
+      child.stdout.on('data', (chunk) => { stdout += String(chunk); });
+      child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+    }
+
     child.on('error', reject);
     child.on('close', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`social ${args.join(' ')} exited with code ${code}`));
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      const error = new Error(`social ${args.join(' ')} exited with code ${code}`);
+      error.stdout = stdout;
+      error.stderr = stderr;
+      reject(error);
     });
   });
+}
+
+function makeSpinner(text) {
+  if (!process.stdout.isTTY) return null;
+  return ora({ text }).start();
+}
+
+function flushCaptured(output) {
+  const out = String(output?.stdout || '');
+  const err = String(output?.stderr || '');
+  if (out) process.stdout.write(out);
+  if (err) process.stderr.write(err);
 }
 
 function printSetupReport(report, title) {
@@ -99,7 +127,16 @@ function registerSetupCommand(program) {
       }
 
       console.log(chalk.cyan('[3/3] Running diagnostics\n'));
-      await runSubprocess(['doctor']);
+      const diagnosticsSpinner = makeSpinner('Running diagnostics...');
+      try {
+        const diagnosticsOut = await runSubprocess(['doctor'], { capture: true });
+        if (diagnosticsSpinner) diagnosticsSpinner.succeed('Diagnostics complete');
+        flushCaptured(diagnosticsOut);
+      } catch (error) {
+        if (diagnosticsSpinner) diagnosticsSpinner.fail('Diagnostics failed');
+        flushCaptured(error);
+        throw error;
+      }
 
       const finalReport = buildReadinessReport();
       printSetupReport(finalReport, ' Setup Result ');
@@ -121,10 +158,18 @@ function registerSetupCommand(program) {
         return;
       }
 
-      const startRes = await startGatewayBackground({
-        host: opts.host,
-        port: opts.port
-      });
+      const gatewaySpinner = makeSpinner('Starting gateway and waiting for health...');
+      let startRes;
+      try {
+        startRes = await startGatewayBackground({
+          host: opts.host,
+          port: opts.port
+        });
+        if (gatewaySpinner) gatewaySpinner.succeed('Gateway launch step complete');
+      } catch (error) {
+        if (gatewaySpinner) gatewaySpinner.fail('Gateway launch failed');
+        throw error;
+      }
 
       const url = `http://${startRes.status.host}:${startRes.status.port}`;
       if (startRes.health && startRes.health.ok) {

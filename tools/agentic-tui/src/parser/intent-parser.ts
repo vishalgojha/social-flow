@@ -68,18 +68,13 @@ function hasAny(text: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(text));
 }
 
-function detectGuideTopic(input: string): string {
+function detectDomainTopic(input: string): string {
   const s = String(input || "").toLowerCase();
-  const asksGuidance = hasAny(s, [
-    /\b(setup|set up|configure|config|connect|onboard|auth|authenticate|login|guide|start)\b/,
-    /\b(help|how to|how do i|where do i|what next)\b/
-  ]);
-  if (!asksGuidance) return "";
 
   if (hasAny(s, [/\bwhatsapp\b/, /\bwaba\b/, /\btemplate\b/, /\bwebhook\b/, /\bphone number id\b/])) {
     return "waba";
   }
-  if (hasAny(s, [/\binstagram\b/, /\binsta\b/, /\big\b/, /\breel\b/, /\bstory\b/])) {
+  if (hasAny(s, [/\binstagram\b/, /\binsta\b/, /\big\b/, /\breel\b/, /\bstory\b/, /\bmedia\b/])) {
     return "instagram";
   }
   if (hasAny(s, [/\bads?\b/, /\bmarketing\b/, /\bcampaign\b/, /\badset\b/, /\bact_[a-z0-9_]+\b/])) {
@@ -92,12 +87,23 @@ function detectGuideTopic(input: string): string {
     return "setup-auth";
   }
 
-  return "setup-auth";
+  return "";
+}
+
+function detectGuideTopic(input: string): string {
+  const s = String(input || "").toLowerCase();
+  const asksGuidance = hasAny(s, [
+    /\b(setup|set up|configure|config|connect|onboard|auth|authenticate|login|guide|start)\b/,
+    /\b(help|how to|how do i|where do i|what next)\b/
+  ]);
+  if (!asksGuidance) return "";
+  return detectDomainTopic(s) || "setup-auth";
 }
 
 function inferAction(input: string): ParsedIntent["action"] {
   const s = input.toLowerCase();
   const guideTopic = detectGuideTopic(s);
+  const domainTopic = detectDomainTopic(s);
   if (/\bsocial\s+hatch\b/.test(s) || /\bsocial\s+tui\b/.test(s)) return "help";
   if (guideTopic) return "guide";
   if (/\b(help|what can you do|what do you do|show commands|how do i use|start here)\b/.test(s)) return "help";
@@ -124,6 +130,7 @@ function inferAction(input: string): ParsedIntent["action"] {
     && s.split(/\s+/).length <= 4
     && !/\b(post|ads?|profile|config|status|doctor|logs|replay|onboard|setup)\b/.test(s)
   ) return "help";
+  if (domainTopic) return "guide";
   return "unknown";
 }
 
@@ -187,7 +194,7 @@ function buildDeterministicIntent(input: string): ParsedIntent {
     pageId: text.match(/\bpage\s+([a-z0-9_]+)/i)?.[1] || "",
     adAccountId: text.match(/\baccount\s+([a-z0-9_]+)/i)?.[1] || "",
     phone: extractPhone(text) || "",
-    topic: detectGuideTopic(text) || "",
+    topic: detectGuideTopic(text) || detectDomainTopic(text) || "",
     fields: "id,name"
   };
 

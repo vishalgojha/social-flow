@@ -64,5 +64,14 @@ export const parserIntentTests: TuiTestCase[] = [
       assert.equal(parsed.intent.params.topic, "setup-auth");
       assert.equal(parsed.valid, true);
     }
+  },
+  {
+    name: "domain command-like instagram phrasing maps to guide instead of unknown",
+    fn: () => {
+      const parsed = parseNaturalLanguage("social insta list accounts");
+      assert.equal(parsed.intent.action, "guide");
+      assert.equal(parsed.intent.params.topic, "instagram");
+      assert.equal(parsed.valid, true);
+    }
   }
 ];
