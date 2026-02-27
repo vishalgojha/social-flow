@@ -55,6 +55,21 @@ function newLog(level: LogEntry["level"], message: string): LogEntry {
   return { at: new Date().toISOString(), level, message };
 }
 
+const AUTO_EXECUTE_CONFIDENCE_THRESHOLD = Math.min(
+  0.98,
+  Math.max(0.5, Number.parseFloat(process.env.SOCIAL_TUI_AUTO_EXECUTE_CONFIDENCE || "0.82") || 0.82)
+);
+
+function formatConfidence(confidence: number | null | undefined): string {
+  if (typeof confidence !== "number" || Number.isNaN(confidence)) return "--";
+  return `${Math.round(Math.max(0, Math.min(1, confidence)) * 100)}%`;
+}
+
+function shouldRequireIntentConfirmation(confidence: number | undefined): boolean {
+  if (typeof confidence !== "number" || Number.isNaN(confidence)) return true;
+  return confidence < AUTO_EXECUTE_CONFIDENCE_THRESHOLD;
+}
+
 function formatLiveLog(entry: LogEntry): string {
   const base = `${entry.at} ${entry.level} ${entry.message}`;
   if (entry.level === "ERROR") return chalk.red(base);
@@ -299,11 +314,15 @@ function Dashboard(): JSX.Element {
 
   const parseAndQueueIntent = async (raw: string): Promise<void> => {
     const parsed = await parseNaturalLanguageWithOptionalAi(raw);
+    const intentConfidence = typeof parsed.confidence === "number" ? parsed.confidence : 0;
+    const requiresConfirmation = shouldRequireIntentConfirmation(intentConfidence);
     dispatch({
       type: "PARSE_READY",
       intent: parsed.intent,
       risk: getExecutor(parsed.intent.action).risk,
-      missingSlots: parsed.missingSlots
+      missingSlots: parsed.missingSlots,
+      confidence: intentConfidence,
+      requiresConfirmation
     });
     if (!parsed.valid) {
       dispatch({
@@ -313,7 +332,7 @@ function Dashboard(): JSX.Element {
     }
     dispatch({
       type: "LOG_ADD",
-      entry: newLog("INFO", `${(parsed.source || "deterministic").toUpperCase()} parsed intent: ${JSON.stringify(parsed.intent)}`)
+      entry: newLog("INFO", `${(parsed.source || "deterministic").toUpperCase()} parsed intent: ${JSON.stringify(parsed.intent)} (confidence=${formatConfidence(intentConfidence)})`)
     });
     if (parsed.missingSlots.length > 0) {
       dispatch({
@@ -322,9 +341,16 @@ function Dashboard(): JSX.Element {
       });
       return;
     }
-    if (getExecutor(parsed.intent.action).risk === "LOW") {
+    if (getExecutor(parsed.intent.action).risk === "LOW" && !requiresConfirmation) {
       dispatch({ type: "APPROVED", auto: true });
       await runExecution();
+      return;
+    }
+    if (requiresConfirmation) {
+      dispatch({
+        type: "LOG_ADD",
+        entry: newLog("WARN", `Intent confidence ${formatConfidence(intentConfidence)}. Press Enter/a to confirm, or rephrase.`)
+      });
     }
   };
 
@@ -336,11 +362,15 @@ function Dashboard(): JSX.Element {
 
     if (state.phase === "EDIT_SLOTS" && state.currentIntent) {
       const edited = applySlotEdits(state.currentIntent, state.editInput);
+      const editedConfidence = typeof edited.confidence === "number" ? edited.confidence : 0.9;
+      const editedRequiresConfirmation = shouldRequireIntentConfirmation(editedConfidence);
       dispatch({
         type: "PARSE_READY",
         intent: edited.intent,
         risk: getExecutor(edited.intent.action).risk,
-        missingSlots: edited.missingSlots
+        missingSlots: edited.missingSlots,
+        confidence: editedConfidence,
+        requiresConfirmation: editedRequiresConfirmation
       });
       dispatch({ type: "RETURN_TO_APPROVAL" });
       dispatch({
@@ -569,11 +599,12 @@ function Dashboard(): JSX.Element {
     const lines: React.ReactNode[] = [
       <Text key="p1" color={theme.text}>Action: {state.currentIntent.action}</Text>,
       <Text key="p2" color={theme.text}>Risk: {state.currentRisk}</Text>,
-      <Text key="p3" color={theme.text}>Missing: {state.missingSlots.join(", ") || "none"}</Text>
+      <Text key="p3" color={theme.text}>Confidence: {formatConfidence(state.currentConfidence)}</Text>,
+      <Text key="p4" color={theme.text}>Missing: {state.missingSlots.join(", ") || "none"}</Text>
     ];
-    if (state.showDetails) lines.push(<Text key="p4" color={theme.muted}>{JSON.stringify(state.currentIntent.params, null, 2)}</Text>);
+    if (state.showDetails) lines.push(<Text key="p5" color={theme.muted}>{JSON.stringify(state.currentIntent.params, null, 2)}</Text>);
     return lines;
-  }, [state.currentIntent, state.currentRisk, state.missingSlots, state.showDetails, theme.muted, theme.text]);
+  }, [state.currentConfidence, state.currentIntent, state.currentRisk, state.missingSlots, state.showDetails, theme.muted, theme.text]);
 
   const queueLines = state.actionQueue.length
     ? state.actionQueue.map((x) => <Text key={x.id} color={theme.text}>{x.id} {x.action} {x.status}</Text>)

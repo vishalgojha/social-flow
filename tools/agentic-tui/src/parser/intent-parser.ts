@@ -136,6 +136,56 @@ function inferAction(input: string): ParsedIntent["action"] {
   return "unknown";
 }
 
+function clampConfidence(value: number): number {
+  if (!Number.isFinite(value)) return 0.5;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+
+function deterministicConfidenceScore(input: string, intent: ParsedIntent): number {
+  const s = String(input || "").trim().toLowerCase();
+  if (!s) return 0.5;
+  if (intent.action === "unknown") return 0.18;
+
+  const hasGreeting = /\b(hi|hello|hey|yo|hola|good morning|good evening|good afternoon)\b/.test(s);
+  const hasCapabilityQuestion = /\b(help|what can you do|what do you do|show commands|how do i use|start here)\b/.test(s);
+  const shortQuestion = /^(who|what|how|can you|help|menu|options|commands)\b/.test(s) && s.split(/\s+/).length <= 4;
+
+  if (intent.action === "status" && hasGreeting) return 0.95;
+  if (intent.action === "help" && hasCapabilityQuestion) return 0.92;
+  if (intent.action === "help" && shortQuestion) return 0.74;
+  if (intent.action === "guide") return intent.params.topic ? 0.9 : 0.78;
+  if (intent.action === "onboard") return intent.params.token ? 0.9 : 0.7;
+  if (intent.action === "create_post") return intent.params.message ? 0.86 : 0.68;
+  if (intent.action === "list_ads") return intent.params.adAccountId ? 0.84 : 0.76;
+  if (intent.action === "logs") return 0.86;
+  if (intent.action === "doctor") return 0.9;
+  if (intent.action === "config") return 0.9;
+  if (intent.action === "get_profile") return 0.88;
+  if (intent.action === "get_status") return 0.9;
+  if (intent.action === "status") return 0.86;
+  if (intent.action === "replay") return intent.params.id ? 0.85 : 0.66;
+  return 0.8;
+}
+
+function aiConfidenceScore(aiIntent: ParsedIntent, deterministic: ParseResult, explicitAi: boolean): number {
+  const aiAction = aiIntent.action;
+  const deterministicAction = deterministic.intent.action;
+
+  if (aiAction === "unknown") return explicitAi ? 0.45 : 0.3;
+  if (aiAction === deterministicAction) {
+    return Math.max(0.9, deterministic.confidence || 0.8);
+  }
+  if (deterministicAction === "unknown") {
+    return explicitAi ? 0.8 : 0.72;
+  }
+  if (deterministicAction === "guide" && aiAction !== "guide") {
+    return explicitAi ? 0.65 : 0.55;
+  }
+  return explicitAi ? 0.68 : 0.58;
+}
+
 function normalizeIntent(intent: ParsedIntent): ParsedIntent {
   const out: ParsedIntent = { action: intent.action, params: {} };
   for (const [k, v] of Object.entries(intent.params)) {
@@ -237,18 +287,22 @@ function buildDeterministicIntent(input: string): ParsedIntent {
 }
 
 function finalize(result: ParseResult): ParseResult {
+  const defaultConfidence = result.intent.action === "unknown" ? 0.2 : 0.8;
   return {
     ...result,
-    intent: normalizeIntent(result.intent)
+    intent: normalizeIntent(result.intent),
+    confidence: clampConfidence(typeof result.confidence === "number" ? result.confidence : defaultConfidence)
   };
 }
 
 export function parseNaturalLanguage(input: string): ParseResult {
   const normalized = normalizeIntent(buildDeterministicIntent(input));
+  const confidence = deterministicConfidenceScore(input, normalized);
   return finalize({
     ...validateIntent(normalized),
     source: "deterministic",
-    inputText: input
+    inputText: input,
+    confidence
   });
 }
 
@@ -316,10 +370,12 @@ export async function parseNaturalLanguageWithOptionalAi(input: string): Promise
 
     const aiIntent = await aiMod.parseIntentWithAi(cleanInput, { provider, model, baseUrl, apiKey });
     const mapped = normalizeIntent(toParsedIntentFromCore(aiIntent));
+    const confidence = aiConfidenceScore(mapped, deterministic, explicitAi);
     const aiResult = finalize({
       ...validateIntent(mapped),
       source: "ai",
-      inputText: cleanInput
+      inputText: cleanInput,
+      confidence
     });
 
     if (deterministic.intent.action === "guide" && aiResult.intent.action !== "guide") {
@@ -347,6 +403,7 @@ export function applySlotEdits(intent: ParsedIntent, editLine: string): ParseRes
   return finalize({
     ...validateIntent(normalizeIntent(next)),
     source: "deterministic",
-    inputText: editLine
+    inputText: editLine,
+    confidence: 0.9
   });
 }

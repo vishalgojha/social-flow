@@ -17,6 +17,8 @@ export const INITIAL_STATE: AppState = {
   showDetails: /^(1|true|on|yes)$/i.test(String(process.env.SOCIAL_TUI_VERBOSE || "")),
   currentIntent: null,
   currentRisk: null,
+  currentConfidence: null,
+  requiresIntentConfirmation: false,
   missingSlots: [],
   actionQueue: [],
   liveLogs: [],
@@ -31,7 +33,14 @@ type AppEvent =
   | { type: "SET_EDIT_INPUT"; value: string }
   | { type: "SET_APPROVAL_REASON"; value: string }
   | { type: "TOGGLE_DETAILS" }
-  | { type: "PARSE_READY"; intent: ParsedIntent; risk: RiskLevel; missingSlots: string[] }
+  | {
+      type: "PARSE_READY";
+      intent: ParsedIntent;
+      risk: RiskLevel;
+      missingSlots: string[];
+      confidence: number;
+      requiresConfirmation: boolean;
+    }
   | { type: "REQUEST_EDIT" }
   | { type: "RETURN_TO_APPROVAL" }
   | { type: "MARK_EXECUTING" }
@@ -51,9 +60,9 @@ function pushBounded<T>(items: T[], item: T): T[] {
   return [...items.slice(-(MAX_ITEMS - 1)), item];
 }
 
-function nextPhaseAfterParse(risk: RiskLevel, missingSlots: string[]): AppPhase {
+function nextPhaseAfterParse(risk: RiskLevel, missingSlots: string[], requiresConfirmation: boolean): AppPhase {
   if (missingSlots.length > 0) return "APPROVAL";
-  if (risk === "LOW") return "EXECUTING";
+  if (risk === "LOW" && !requiresConfirmation) return "EXECUTING";
   return "APPROVAL";
 }
 
@@ -86,8 +95,10 @@ export function reducer(state: AppState, event: AppEvent): AppState {
         ...state,
         currentIntent: event.intent,
         currentRisk: event.risk,
+        currentConfidence: event.confidence,
+        requiresIntentConfirmation: event.requiresConfirmation,
         missingSlots: event.missingSlots,
-        phase: nextPhaseAfterParse(event.risk, event.missingSlots),
+        phase: nextPhaseAfterParse(event.risk, event.missingSlots, event.requiresConfirmation),
         approvals: nextApprovals,
         approvalReason: "",
         highRiskConfirmedOnce: false
@@ -149,6 +160,8 @@ export function reducer(state: AppState, event: AppEvent): AppState {
         approvalReason: "",
         currentIntent: null,
         currentRisk: null,
+        currentConfidence: null,
+        requiresIntentConfirmation: false,
         missingSlots: [],
         highRiskConfirmedOnce: false
       };

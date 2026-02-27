@@ -177,6 +177,22 @@ function explainPlan(intent: ParsedIntent | null, risk: string | null): string {
   ].join(" ");
 }
 
+const AUTO_EXECUTE_CONFIDENCE_THRESHOLD = Math.min(
+  0.98,
+  Math.max(0.5, Number.parseFloat(process.env.SOCIAL_TUI_AUTO_EXECUTE_CONFIDENCE || "0.82") || 0.82)
+);
+
+function formatConfidence(confidence: number | null | undefined): string {
+  if (typeof confidence !== "number" || Number.isNaN(confidence)) return "--";
+  return `${Math.round(Math.max(0, Math.min(1, confidence)) * 100)}%`;
+}
+
+function shouldRequireIntentConfirmation(confidence: number | undefined, action: ParsedIntent["action"]): boolean {
+  if (action === "unknown") return true;
+  if (typeof confidence !== "number" || Number.isNaN(confidence)) return true;
+  return confidence < AUTO_EXECUTE_CONFIDENCE_THRESHOLD;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -355,9 +371,17 @@ function HatchRuntime(): JSX.Element {
     const parsed = await parseNaturalLanguageWithOptionalAi(raw);
     const executor = getExecutor(parsed.intent.action);
     const parsedRisk = executor.risk;
+    const intentConfidence = typeof parsed.confidence === "number" ? parsed.confidence : 0;
+    const requiresConfirmation = shouldRequireIntentConfirmation(intentConfidence, parsed.intent.action);
     const domainSkill = detectDomainSkill(raw, parsed.intent.action);
     if (state.showDetails) await streamPhase("Planning", parsed.intent.action);
-    dispatch({ type: "LOG_ADD", entry: newLog("INFO", `${(parsed.source || "deterministic").toUpperCase()} parsed intent: ${JSON.stringify(parsed.intent)}`) });
+    dispatch({
+      type: "LOG_ADD",
+      entry: newLog(
+        "INFO",
+        `${(parsed.source || "deterministic").toUpperCase()} parsed intent: ${JSON.stringify(parsed.intent)} (confidence=${formatConfidence(intentConfidence)})`
+      )
+    });
     dispatch({ type: "LOG_ADD", entry: newLog("INFO", `Skill route: ${domainSkill.id}`) });
 
     if (parsed.intent.action === "unknown") {
@@ -382,7 +406,9 @@ function HatchRuntime(): JSX.Element {
       type: "PARSE_READY",
       intent: parsed.intent,
       risk: parsedRisk,
-      missingSlots: parsed.missingSlots
+      missingSlots: parsed.missingSlots,
+      confidence: intentConfidence,
+      requiresConfirmation
     });
 
     if (!parsed.valid) {
@@ -392,10 +418,16 @@ function HatchRuntime(): JSX.Element {
       await streamAssistantTurn(`I need these fields: ${parsed.missingSlots.join(", ")}. Press e to edit slots.`);
       return;
     }
-    if (parsedRisk === "LOW") {
+    if (parsedRisk === "LOW" && !requiresConfirmation) {
       dispatch({ type: "APPROVED", auto: true });
       if (state.showDetails) await streamAssistantTurn("Low-risk action. Auto-executing.");
       await runExecution(parsed.intent);
+      return;
+    }
+    if (parsedRisk === "LOW" && requiresConfirmation) {
+      await streamAssistantTurn(
+        `Intent confidence is ${formatConfidence(intentConfidence)}. Confirm with Enter/a, or rephrase to improve intent match.`
+      );
       return;
     }
     await streamAssistantTurn(
@@ -422,11 +454,15 @@ function HatchRuntime(): JSX.Element {
 
     if (state.phase === "EDIT_SLOTS" && state.currentIntent) {
       const edited = applySlotEdits(state.currentIntent, state.editInput);
+      const editedConfidence = typeof edited.confidence === "number" ? edited.confidence : 0.9;
+      const editedRequiresConfirmation = shouldRequireIntentConfirmation(editedConfidence, edited.intent.action);
       dispatch({
         type: "PARSE_READY",
         intent: edited.intent,
         risk: getExecutor(edited.intent.action).risk,
-        missingSlots: edited.missingSlots
+        missingSlots: edited.missingSlots,
+        confidence: editedConfidence,
+        requiresConfirmation: editedRequiresConfirmation
       });
       dispatch({ type: "RETURN_TO_APPROVAL" });
       await streamAssistantTurn(edited.missingSlots.length > 0 ? `Still missing: ${edited.missingSlots.join(", ")}` : "Slots updated.");
@@ -596,6 +632,7 @@ function HatchRuntime(): JSX.Element {
   const riskTone = state.currentRisk === "HIGH" ? theme.error : state.currentRisk === "MEDIUM" ? theme.warning : theme.success;
   const phaseTone = state.phase === "EXECUTING" ? theme.accent : state.phase === "REJECTED" ? theme.warning : theme.text;
   const topActivity = state.liveLogs[state.liveLogs.length - 1];
+  const confidenceLabel = formatConfidence(state.currentConfidence);
 
   const accountOptions = accountOptionsFromConfig(config || {
     tokenSet: false,
@@ -620,7 +657,7 @@ function HatchRuntime(): JSX.Element {
   return (
     <Box flexDirection="column">
       <Text color={theme.accent}>
-        Social Flow Hatch | runtime {runtimeLabel} | phase {state.phase.toLowerCase()} | risk {(state.currentRisk || "LOW").toLowerCase()} | account {selectedAccount} | industry {industryLabel} | ai {aiLabel} | connected {connectedCount}/3
+        Social Flow Hatch | runtime {runtimeLabel} | phase {state.phase.toLowerCase()} | risk {(state.currentRisk || "LOW").toLowerCase()} | confidence {confidenceLabel} | account {selectedAccount} | industry {industryLabel} | ai {aiLabel} | connected {connectedCount}/3
       </Text>
       <Text color={theme.muted}>
         latest: {topActivity ? `${shortTime(topActivity.at)} ${topActivity.message.slice(0, 72)}` : "idle"}
@@ -638,7 +675,7 @@ function HatchRuntime(): JSX.Element {
       {verboseMode ? (
         <Box marginTop={1} flexDirection="column">
           <Text color={theme.accent}>diagnostics</Text>
-          <Text color={phaseTone}>phase={state.phase} risk={state.currentRisk || "LOW"} action={state.currentIntent?.action || "none"} missing={state.missingSlots.join(", ") || "none"}</Text>
+          <Text color={phaseTone}>phase={state.phase} risk={state.currentRisk || "LOW"} confidence={confidenceLabel} action={state.currentIntent?.action || "none"} missing={state.missingSlots.join(", ") || "none"}</Text>
           {configState.loading ? <Text color={theme.muted}>config: loading...</Text> : null}
           {configState.error ? <Text color={theme.error}>config error: {configState.error}</Text> : null}
           <Text color={theme.muted}>graph={config?.graphVersion || "v20.0"} account={selectedAccount}</Text>

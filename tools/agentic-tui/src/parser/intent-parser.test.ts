@@ -14,6 +14,7 @@ export const parserIntentTests: TuiTestCase[] = [
       const parsed = parseNaturalLanguage("hello");
       assert.equal(parsed.intent.action, "status");
       assert.equal(parsed.valid, true);
+      assert.ok((parsed.confidence || 0) >= 0.9);
     }
   },
   {
@@ -37,6 +38,7 @@ export const parserIntentTests: TuiTestCase[] = [
     fn: () => {
       const parsed = parseNaturalLanguage("maybe do something strange with numbers");
       assert.equal(parsed.intent.action, "unknown");
+      assert.ok((parsed.confidence || 1) <= 0.3);
     }
   },
   {

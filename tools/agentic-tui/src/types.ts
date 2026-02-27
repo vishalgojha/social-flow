@@ -36,6 +36,7 @@ export interface ParseResult {
   missingSlots: string[];
   source?: "deterministic" | "ai";
   inputText?: string;
+  confidence?: number;
 }
 
 export interface ActionQueueItem {
@@ -84,6 +85,8 @@ export interface AppState {
   showDetails: boolean;
   currentIntent: ParsedIntent | null;
   currentRisk: RiskLevel | null;
+  currentConfidence: number | null;
+  requiresIntentConfirmation: boolean;
   missingSlots: string[];
   actionQueue: ActionQueueItem[];
   liveLogs: LogEntry[];
