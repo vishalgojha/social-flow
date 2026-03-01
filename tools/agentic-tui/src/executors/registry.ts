@@ -239,6 +239,7 @@ const executors: Record<ParsedIntent["action"], RegisteredExecutor> = {
           message: "I can guide Cloud API setup, webhook checks, and template send tests.",
           suggestions: [
             "social integrations connect waba",
+            "social waba send --from PHONE_ID --to +15551234567 --body \"Hello\"",
             "social waba send --help",
             "/ai send whatsapp test to +15551234567"
           ]

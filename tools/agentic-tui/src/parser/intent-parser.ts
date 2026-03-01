@@ -310,13 +310,8 @@ export async function parseNaturalLanguageWithOptionalAi(input: string): Promise
   const raw = String(input || "").trim();
   const explicitAi = raw.toLowerCase().startsWith("/ai ");
   const cleanInput = explicitAi ? raw.slice(4).trim() : raw;
+  const cleanLower = cleanInput.toLowerCase();
   const deterministic = parseNaturalLanguage(cleanInput);
-  const deterministicSafeReadOnly = new Set(["help", "status", "doctor", "config", "get_status"]);
-  if (!explicitAi && deterministicSafeReadOnly.has(deterministic.intent.action)) {
-    // Keep obvious conversational/read-only intents deterministic.
-    // This avoids model misclassification (e.g., greeting -> onboard).
-    return deterministic;
-  }
   const autoAiEnabled = !/^(0|false|off|no)$/i.test(String(process.env.SOCIAL_TUI_AI_AUTO || "1"));
   const configuredProvider = normalizeAiProvider(
     process.env.SOCIAL_TUI_AI_PROVIDER
@@ -377,6 +372,17 @@ export async function parseNaturalLanguageWithOptionalAi(input: string): Promise
       inputText: cleanInput,
       confidence
     });
+
+    // Keep direct command words deterministic so shortcuts stay predictable.
+    if (!explicitAi && /^(doctor|status|config)\s*$/i.test(cleanInput)) {
+      return deterministic;
+    }
+
+    // Preserve capability/help questions even when model drifts toward "status".
+    const capabilityPrompt = /\b(what can (you|yo) do|what do you do|show commands|help)\b/i.test(cleanLower);
+    if (!explicitAi && capabilityPrompt && deterministic.intent.action === "help" && aiResult.intent.action !== "help") {
+      return deterministic;
+    }
 
     if (deterministic.intent.action === "guide" && aiResult.intent.action !== "guide") {
       return deterministic;

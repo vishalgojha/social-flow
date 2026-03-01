@@ -15,9 +15,19 @@ import { detectDomainSkill } from "./domain-skills.js";
 import {
   accountOptionsFromConfig,
   loadConfigSnapshot,
-  loadPersistedLogs
+  loadHatchMemory,
+  loadPersistedLogs,
+  saveHatchMemory
 } from "./tui-session-actions.js";
-import type { ChatTurn, ConfigSnapshot, LoadState, PersistedLog } from "./tui-types.js";
+import type {
+  ChatTurn,
+  ConfigSnapshot,
+  HatchMemorySnapshot,
+  LoadState,
+  MemoryIntentRecord,
+  MemoryUnresolvedRecord,
+  PersistedLog
+} from "./tui-types.js";
 
 function newLog(level: LogEntry["level"], message: string): LogEntry {
   return { at: new Date().toISOString(), level, message };
@@ -68,6 +78,232 @@ function roleGlyph(role: ChatTurn["role"]): string {
   return "sys";
 }
 
+function newSessionId(): string {
+  return `hatch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function shortText(text: string, limit = 120): string {
+  const value = String(text || "").trim().replace(/\s+/g, " ");
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit - 3)}...`;
+}
+
+function looksLikeGreetingOnly(input: string): boolean {
+  const text = String(input || "").trim().toLowerCase().replace(/[!?.]+$/g, "").trim();
+  return /^(hi|hello|hey|yo|hola|good morning|good evening|good afternoon)(\s+[a-z]{2,20})?$/.test(text);
+}
+
+function extractProfileName(input: string): string {
+  const raw = String(input || "").trim();
+  const match = raw.match(/\b(?:my name is|i am|i'm|call me)\s+([a-z][a-z '\-]{1,40})$/i);
+  if (!match?.[1]) return "";
+  const normalized = match[1]
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[^a-z '\-]/gi, "")
+    .trim();
+  if (!normalized) return "";
+  return normalized
+    .split(" ")
+    .slice(0, 3)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function asksForRememberedName(input: string): boolean {
+  const text = String(input || "").trim().toLowerCase();
+  if (!text) return false;
+  return (
+    text.includes("what is my name")
+    || text.includes("what's my name")
+    || text.includes("do you remember my name")
+    || text.includes("remember my name")
+  );
+}
+
+type ChatReplyAiProvider = "openai" | "openrouter" | "xai" | "ollama";
+
+type ChatReplyAiConfig = {
+  enabled: boolean;
+  provider: ChatReplyAiProvider;
+  model: string;
+  baseUrl: string;
+  apiKey: string;
+};
+
+type ConversationalReplyInput = {
+  userText: string;
+  fallback: string;
+  mode: "chat" | "result";
+  intentAction?: string;
+  intentRisk?: string | null;
+  executionOk?: boolean | null;
+  profileName?: string;
+  lastIntents?: MemoryIntentRecord[];
+  unresolved?: MemoryUnresolvedRecord[];
+};
+
+function resolveChatReplyAiConfig(): ChatReplyAiConfig {
+  const aiEnabled = !/^(0|false|off|no)$/i.test(String(process.env.SOCIAL_TUI_CHAT_REPLY_AI || "1"));
+  const rawProvider = String(process.env.SOCIAL_TUI_AI_VENDOR || process.env.SOCIAL_TUI_AI_PROVIDER || "openai")
+    .trim()
+    .toLowerCase();
+  const provider: ChatReplyAiProvider = rawProvider === "openrouter"
+    ? "openrouter"
+    : rawProvider === "xai" || rawProvider === "grok"
+      ? "xai"
+      : rawProvider === "ollama"
+        ? "ollama"
+        : "openai";
+
+  const model = String(process.env.SOCIAL_TUI_AI_MODEL || (
+    provider === "openrouter"
+      ? "openai/gpt-4o-mini"
+      : provider === "xai"
+        ? "grok-2-latest"
+        : provider === "ollama"
+          ? "qwen2.5:7b"
+          : "gpt-4o-mini"
+  )).trim();
+
+  const baseUrl = String(process.env.SOCIAL_TUI_AI_BASE_URL || (
+    provider === "openrouter"
+      ? "https://openrouter.ai/api/v1"
+      : provider === "xai"
+        ? "https://api.x.ai/v1"
+        : provider === "ollama"
+          ? "http://127.0.0.1:11434"
+          : "https://api.openai.com/v1"
+  )).trim();
+
+  const apiKey = String(
+    process.env.SOCIAL_TUI_AI_API_KEY
+    || process.env.OPENAI_API_KEY
+    || process.env.OPENROUTER_API_KEY
+    || process.env.XAI_API_KEY
+    || ""
+  ).trim();
+
+  const hasKey = provider === "ollama" ? true : Boolean(apiKey);
+  return {
+    enabled: aiEnabled && hasKey && Boolean(model) && Boolean(baseUrl),
+    provider,
+    model,
+    baseUrl,
+    apiKey
+  };
+}
+
+function extractOpenAiCompatibleContent(payload: unknown): string {
+  const root = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const choices = Array.isArray(root.choices) ? root.choices : [];
+  const first = choices[0] && typeof choices[0] === "object" ? choices[0] as Record<string, unknown> : {};
+  const message = first.message && typeof first.message === "object" ? first.message as Record<string, unknown> : {};
+  const content = message.content;
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    return content.map((part) => {
+      if (typeof part === "string") return part;
+      if (!part || typeof part !== "object") return "";
+      const text = (part as Record<string, unknown>).text;
+      return typeof text === "string" ? text : "";
+    }).join(" ").trim();
+  }
+  const fallback = first.text;
+  return typeof fallback === "string" ? fallback.trim() : "";
+}
+
+async function callConversationalAi(cfg: ChatReplyAiConfig, messages: Array<{ role: "system" | "user"; content: string }>): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12_000);
+  try {
+    if (cfg.provider === "ollama") {
+      const response = await fetch(`${cfg.baseUrl.replace(/\/+$/, "")}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: cfg.model,
+          stream: false,
+          messages,
+          options: { temperature: 0.4 }
+        }),
+        signal: controller.signal
+      });
+      if (!response.ok) return "";
+      const data = await response.json() as { message?: { content?: string } };
+      return String(data?.message?.content || "").trim();
+    }
+
+    const response = await fetch(`${cfg.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${cfg.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: cfg.model,
+        temperature: 0.4,
+        max_tokens: 180,
+        messages
+      }),
+      signal: controller.signal
+    });
+    if (!response.ok) return "";
+    const data = await response.json();
+    return extractOpenAiCompatibleContent(data);
+  } catch {
+    return "";
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function sanitizeConversationalReply(value: string, fallback: string): string {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return fallback;
+  if (text.length > 320) return `${text.slice(0, 317)}...`;
+  return text;
+}
+
+async function generateConversationalReply(input: ConversationalReplyInput): Promise<string> {
+  const cfg = resolveChatReplyAiConfig();
+  if (!cfg.enabled) return input.fallback;
+
+  const recentIntents = Array.isArray(input.lastIntents)
+    ? input.lastIntents.map((x) => `${x.action}:${x.text}`).slice(0, 3).join(" | ")
+    : "";
+  const unresolved = Array.isArray(input.unresolved)
+    ? input.unresolved.map((x) => x.text).slice(0, 3).join(" | ")
+    : "";
+
+  const system = [
+    "You are Hatch, the conversational assistant for Social Flow.",
+    "Style: natural, concise, human; max 2 short sentences.",
+    "Guardrails: never claim to run actions outside approved deterministic execution.",
+    "If execution failed, acknowledge clearly and suggest one concrete next command in backticks.",
+    "If intent is unclear, ask one clarifying question.",
+    "Avoid robotic diagnostics wording unless user asks for diagnostics."
+  ].join(" ");
+
+  const context = [
+    `mode=${input.mode}`,
+    `intent_action=${input.intentAction || "none"}`,
+    `intent_risk=${input.intentRisk || "none"}`,
+    `execution_ok=${input.executionOk === null || input.executionOk === undefined ? "none" : String(input.executionOk)}`,
+    `profile_name=${input.profileName || ""}`,
+    `recent_intents=${recentIntents || "none"}`,
+    `open_items=${unresolved || "none"}`,
+    `fallback=${input.fallback}`
+  ].join("\n");
+
+  const result = await callConversationalAi(cfg, [
+    { role: "system", content: system },
+    { role: "user", content: `${context}\n\nUser input: ${input.userText}` }
+  ]);
+
+  return sanitizeConversationalReply(result, input.fallback);
+}
+
 function summarizeIntent(intent: ParsedIntent, risk: string, missing: string[]): string {
   const slots = Object.entries(intent.params)
     .filter(([, value]) => String(value || "").trim())
@@ -98,15 +334,42 @@ function describeAction(action: ParsedIntent["action"]): string {
   return "process that request";
 }
 
+function isSetupOrAuthError(errorText: string): boolean {
+  const msg = String(errorText || "").toLowerCase();
+  if (!msg) return false;
+  return (
+    msg.includes("token") ||
+    msg.includes("auth") ||
+    msg.includes("oauth") ||
+    msg.includes("permission") ||
+    msg.includes("unauthorized") ||
+    msg.includes("access denied") ||
+    msg.includes("forbidden") ||
+    msg.includes("login")
+  );
+}
+
 function summarizeExecutionForChat(intent: ParsedIntent, result: ExecutionResult): string {
   const output = (result.output || {}) as Record<string, unknown>;
 
   if (!result.ok) {
     const error = String(output.error || "").trim();
+    const setupIssue = isSetupOrAuthError(error);
     if (intent.action === "unknown") {
-      return "I could not map that request yet. Try `what can you do`, `status`, or `/help`.";
+      return "I didn't fully understand that yet. Try `what can you do`, `status`, or `/help`.";
     }
-    return error ? `I could not complete that: ${error}` : "I could not complete that request.";
+    if (intent.action === "get_profile") {
+      if (setupIssue) {
+        return "I can't identify your profile yet because Facebook auth is not fully set up. Run `social setup`, then try `whoami` again.";
+      }
+      return error ? `I couldn't fetch your profile yet: ${error}` : "I couldn't fetch your profile yet. Try `status` or `social setup`.";
+    }
+    if (intent.action === "create_post" || intent.action === "list_ads") {
+      if (setupIssue) {
+        return "This workspace is not fully connected yet. Run `social setup` and try again.";
+      }
+    }
+    return error ? `I couldn't finish that yet: ${error}` : "I couldn't finish that request yet.";
   }
 
   if (intent.action === "guide") {
@@ -124,34 +387,43 @@ function summarizeExecutionForChat(intent: ParsedIntent, result: ExecutionResult
       ? output.suggestions.map((x) => String(x)).filter(Boolean).slice(0, 4)
       : [];
     return suggestions.length
-      ? `I can help with status, diagnostics, profiles, posts, ads, logs, and replay. Try: ${suggestions.join(" | ")}`
-      : "I can help with status, diagnostics, profiles, posts, ads, logs, and replay.";
+      ? `Hey, I can help with setup, status, profiles, posts, ads, logs, and replay. Try: ${suggestions.join(" | ")}`
+      : "Hey, I can help with setup, status, profiles, posts, ads, logs, and replay.";
   }
 
   if (intent.action === "status" || intent.action === "get_status") {
-    return "Status check complete. Runtime is responsive.";
+    const tokenSet = Boolean(output.token_set);
+    return tokenSet
+      ? "Hey, I'm online and your workspace looks connected."
+      : "Hey, I'm online. Setup is incomplete, so some actions may fail until you run `social setup`.";
   }
 
   if (intent.action === "doctor") {
     const ok = Boolean(output.ok);
-    return ok ? "Diagnostics complete. No major issues detected." : "Diagnostics found issues. Run `doctor` details in verbose mode.";
+    const issues = Array.isArray(output.issues)
+      ? output.issues.map((x) => String(x)).filter(Boolean).slice(0, 3)
+      : [];
+    if (ok) return "I ran a quick diagnostics check. Everything looks good.";
+    return issues.length
+      ? `I ran diagnostics and found: ${issues.join("; ")}.`
+      : "I ran diagnostics and found issues. Try `social setup` and then `status`.";
   }
 
   if (intent.action === "logs") {
     const count = Number(output.count || 0);
-    return `Fetched logs. Entries available: ${Number.isFinite(count) ? count : 0}.`;
+    return `I pulled the logs. Entries available: ${Number.isFinite(count) ? count : 0}.`;
   }
 
   if (intent.action === "create_post") {
-    return "Post action completed.";
+    return "Done. I processed your post request.";
   }
 
   if (intent.action === "get_profile") {
-    return "Profile lookup completed.";
+    return "Done. I pulled your profile details.";
   }
 
   if (intent.action === "list_ads") {
-    return "Ad listing completed.";
+    return "Done. I pulled your ad account listing.";
   }
 
   return "Done. Action completed successfully.";
@@ -205,6 +477,14 @@ export function RunTui(): JSX.Element {
   );
 }
 
+type HatchMemoryState = {
+  loaded: boolean;
+  sessionId: string;
+  profileName: string;
+  lastIntents: MemoryIntentRecord[];
+  unresolved: MemoryUnresolvedRecord[];
+};
+
 function HatchRuntime(): JSX.Element {
   const theme = useTheme();
   const { exit } = useApp();
@@ -221,6 +501,13 @@ function HatchRuntime(): JSX.Element {
   const [inputHistory, setInputHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [historyDraft, setHistoryDraft] = useState("");
+  const [memory, setMemory] = useState<HatchMemoryState>({
+    loaded: false,
+    sessionId: newSessionId(),
+    profileName: "",
+    lastIntents: [],
+    unresolved: []
+  });
 
   const [configState, setConfigState] = useState<LoadState<ConfigSnapshot | null>>({
     loading: true,
@@ -235,6 +522,30 @@ function HatchRuntime(): JSX.Element {
 
   const addTurn = useCallback((role: ChatTurn["role"], text: string) => {
     setChatTurns((prev) => [...prev.slice(-79), newTurn(role, text)]);
+  }, []);
+
+  const rememberIntent = useCallback((text: string, action: ParsedIntent["action"]) => {
+    const entry: MemoryIntentRecord = {
+      at: new Date().toISOString(),
+      text: shortText(text, 160),
+      action
+    };
+    setMemory((prev) => ({
+      ...prev,
+      lastIntents: [entry, ...prev.lastIntents].slice(0, 3)
+    }));
+  }, []);
+
+  const rememberUnresolved = useCallback((text: string, reason: string) => {
+    const entry: MemoryUnresolvedRecord = {
+      at: new Date().toISOString(),
+      text: shortText(text, 180),
+      reason
+    };
+    setMemory((prev) => ({
+      ...prev,
+      unresolved: [entry, ...prev.unresolved].slice(0, 6)
+    }));
   }, []);
 
   const streamAssistantTurn = useCallback(async (text: string) => {
@@ -289,6 +600,64 @@ function HatchRuntime(): JSX.Element {
     return () => clearInterval(id);
   }, [refreshLogs]);
 
+  useEffect(() => {
+    let active = true;
+    const bootstrapMemory = async () => {
+      try {
+        const saved = await loadHatchMemory();
+        if (!active) return;
+        if (saved) {
+          setMemory({
+            loaded: true,
+            sessionId: String(saved.sessionId || "").trim() || newSessionId(),
+            profileName: String(saved.profileName || "").trim(),
+            lastIntents: Array.isArray(saved.lastIntents) ? saved.lastIntents.slice(0, 3) : [],
+            unresolved: Array.isArray(saved.unresolved) ? saved.unresolved.slice(0, 6) : []
+          });
+          if (Array.isArray(saved.turns) && saved.turns.length > 0) {
+            const restoredTurns = saved.turns.slice(-78);
+            const welcomeName = String(saved.profileName || "").trim();
+            setChatTurns([
+              ...restoredTurns,
+              newTurn("system", welcomeName ? `Memory restored. Welcome back, ${welcomeName}.` : "Memory restored. Welcome back.")
+            ]);
+          }
+          return;
+        }
+        setMemory((prev) => ({ ...prev, loaded: true }));
+      } catch {
+        if (!active) return;
+        setMemory((prev) => ({ ...prev, loaded: true }));
+      }
+    };
+    void bootstrapMemory();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!memory.loaded) return;
+    const timeout = setTimeout(() => {
+      const payload: Omit<HatchMemorySnapshot, "updatedAt"> = {
+        sessionId: memory.sessionId,
+        profileName: memory.profileName,
+        lastIntents: memory.lastIntents,
+        unresolved: memory.unresolved,
+        turns: chatTurns.slice(-80)
+      };
+      void saveHatchMemory(payload);
+    }, 280);
+    return () => clearTimeout(timeout);
+  }, [
+    chatTurns,
+    memory.lastIntents,
+    memory.loaded,
+    memory.profileName,
+    memory.sessionId,
+    memory.unresolved
+  ]);
+
   const runExecution = useCallback(async (intentOverride?: ParsedIntent): Promise<void> => {
     const intent = intentOverride || state.currentIntent;
     if (!intent) {
@@ -315,6 +684,11 @@ function HatchRuntime(): JSX.Element {
         type: "LOG_ADD",
         entry: newLog(res.ok ? "SUCCESS" : "ERROR", res.ok ? "Execution completed." : "Execution failed.")
       });
+      if (!res.ok) {
+        const output = (res.output || {}) as Record<string, unknown>;
+        const reason = String(output.error || intent.action || "execution_failed").trim() || "execution_failed";
+        rememberUnresolved(`${intent.action}: ${reason}`, "execution_failed");
+      }
       if (state.showDetails) {
         await streamAssistantTurn(res.ok ? "Done. I executed that successfully." : "Execution failed. Check logs/results.");
         await streamAssistantTurn(`tool_result: ${intent.action} -> ${res.ok ? "ok" : "failed"}`);
@@ -323,7 +697,19 @@ function HatchRuntime(): JSX.Element {
           `Execution summary: queue=${current.id}, status=${res.ok ? "success" : "failed"}, output_keys=${summaryKeys.join(", ") || "none"}.`
         );
       } else {
-        await streamAssistantTurn(summarizeExecutionForChat(intent, res));
+        const fallback = summarizeExecutionForChat(intent, res);
+        const reply = await generateConversationalReply({
+          userText: intent.action,
+          fallback,
+          mode: "result",
+          intentAction: intent.action,
+          intentRisk: state.currentRisk,
+          executionOk: res.ok,
+          profileName: memory.profileName,
+          lastIntents: memory.lastIntents,
+          unresolved: memory.unresolved
+        });
+        await streamAssistantTurn(reply);
       }
       if (res.rollback) {
         dispatch({
@@ -339,17 +725,42 @@ function HatchRuntime(): JSX.Element {
       void refreshLogs();
       dispatch({ type: "RESET_FLOW" });
     } catch (error) {
+      const errorMessage = String((error as Error)?.message || error);
       dispatch({ type: "QUEUE_UPDATE", id: current.id, status: "FAILED" });
-      dispatch({ type: "SET_RESULT", result: { ok: false, error: String((error as Error)?.message || error) } });
-      dispatch({ type: "LOG_ADD", entry: newLog("ERROR", `Execution error: ${String((error as Error)?.message || error)}`) });
+      dispatch({ type: "SET_RESULT", result: { ok: false, error: errorMessage } });
+      dispatch({ type: "LOG_ADD", entry: newLog("ERROR", `Execution error: ${errorMessage}`) });
+      rememberUnresolved(`${intent.action}: ${errorMessage}`, "execution_exception");
       if (state.showDetails) {
-        await streamAssistantTurn(`Execution error: ${String((error as Error)?.message || error)}`);
+        await streamAssistantTurn(`Execution error: ${errorMessage}`);
       } else {
-        await streamAssistantTurn("I could not complete that action. Try /help or run in verbose mode for diagnostics.");
+        const fallback = summarizeExecutionForChat(intent, { ok: false, output: { error: errorMessage } });
+        const reply = await generateConversationalReply({
+          userText: intent.action,
+          fallback,
+          mode: "result",
+          intentAction: intent.action,
+          intentRisk: state.currentRisk,
+          executionOk: false,
+          profileName: memory.profileName,
+          lastIntents: memory.lastIntents,
+          unresolved: memory.unresolved
+        });
+        await streamAssistantTurn(reply);
       }
       dispatch({ type: "RESET_FLOW" });
     }
-  }, [refreshLogs, state.currentIntent, state.showDetails, streamAssistantTurn, streamPhase]);
+  }, [
+    memory.lastIntents,
+    memory.profileName,
+    memory.unresolved,
+    refreshLogs,
+    rememberUnresolved,
+    state.currentIntent,
+    state.currentRisk,
+    state.showDetails,
+    streamAssistantTurn,
+    streamPhase
+  ]);
 
   const parseAndQueueIntent = useCallback(async (raw: string): Promise<void> => {
     addTurn("user", raw);
@@ -363,6 +774,60 @@ function HatchRuntime(): JSX.Element {
 
     if (raw === "__why__") {
       await streamAssistantTurn(explainPlan(state.currentIntent, state.currentRisk));
+      return;
+    }
+
+    const providedName = extractProfileName(raw);
+    if (providedName) {
+      setMemory((prev) => ({ ...prev, profileName: providedName }));
+      const fallback = `Nice to meet you, ${providedName}. I'll remember your name in this workspace.`;
+      const reply = await generateConversationalReply({
+        userText: raw,
+        fallback,
+        mode: "chat",
+        intentAction: "memory_name_set",
+        profileName: providedName,
+        lastIntents: memory.lastIntents,
+        unresolved: memory.unresolved
+      });
+      await streamAssistantTurn(reply);
+      return;
+    }
+
+    if (asksForRememberedName(raw)) {
+      if (memory.profileName) {
+        const fallback = `Your name is ${memory.profileName}.`;
+        const reply = await generateConversationalReply({
+          userText: raw,
+          fallback,
+          mode: "chat",
+          intentAction: "memory_name_get",
+          profileName: memory.profileName,
+          lastIntents: memory.lastIntents,
+          unresolved: memory.unresolved
+        });
+        await streamAssistantTurn(reply);
+      } else {
+        await streamAssistantTurn("I don't have your name yet. You can tell me with: `my name is ...`.");
+      }
+      return;
+    }
+
+    if (looksLikeGreetingOnly(raw)) {
+      const opener = memory.profileName ? `Hey ${memory.profileName}, I'm here.` : "Hey, I'm here.";
+      const pending = memory.unresolved[0];
+      const pendingHint = pending ? ` You still have one open item: "${shortText(pending.text, 72)}".` : "";
+      const fallback = `${opener}${pendingHint} Want \`status\`, \`whoami\`, or \`social setup\`?`;
+      const reply = await generateConversationalReply({
+        userText: raw,
+        fallback,
+        mode: "chat",
+        intentAction: "greeting",
+        profileName: memory.profileName,
+        lastIntents: memory.lastIntents,
+        unresolved: memory.unresolved
+      });
+      await streamAssistantTurn(reply);
       return;
     }
 
@@ -386,9 +851,18 @@ function HatchRuntime(): JSX.Element {
 
     if (parsed.intent.action === "unknown") {
       dispatch({ type: "LOG_ADD", entry: newLog("WARN", "Intent unresolved. Waiting for clearer instruction.") });
-      await streamAssistantTurn(
-        `${domainSkill.purpose} Try: ${domainSkill.suggestions.map((x) => `\`${x}\``).join(" | ")}`
-      );
+      rememberUnresolved(raw, "intent_unresolved");
+      const fallback = `${domainSkill.purpose} Try: ${domainSkill.suggestions.map((x) => `\`${x}\``).join(" | ")}`;
+      const reply = await generateConversationalReply({
+        userText: raw,
+        fallback,
+        mode: "chat",
+        intentAction: parsed.intent.action,
+        profileName: memory.profileName,
+        lastIntents: memory.lastIntents,
+        unresolved: memory.unresolved
+      });
+      await streamAssistantTurn(reply);
       if (state.showDetails) {
         await streamAssistantTurn(`skill_route: ${domainSkill.id}`);
         await streamAssistantTurn("No tool call queued because intent was unresolved.");
@@ -402,6 +876,7 @@ function HatchRuntime(): JSX.Element {
       await streamAssistantTurn(`Understood. I can ${describeAction(parsed.intent.action)}.`);
       await streamAssistantTurn(summarizeIntent(parsed.intent, parsedRisk, parsed.missingSlots));
     }
+    rememberIntent(raw, parsed.intent.action);
     dispatch({
       type: "PARSE_READY",
       intent: parsed.intent,
@@ -415,7 +890,19 @@ function HatchRuntime(): JSX.Element {
       dispatch({ type: "LOG_ADD", entry: newLog("WARN", parsed.errors.join("; ") || "Intent parsed with warnings.") });
     }
     if (parsed.missingSlots.length > 0) {
-      await streamAssistantTurn(`I need these fields: ${parsed.missingSlots.join(", ")}. Press e to edit slots.`);
+      rememberUnresolved(raw, `missing_slots:${parsed.missingSlots.join(",")}`);
+      const fallback = `I need these fields: ${parsed.missingSlots.join(", ")}. Press e to edit slots.`;
+      const reply = await generateConversationalReply({
+        userText: raw,
+        fallback,
+        mode: "chat",
+        intentAction: parsed.intent.action,
+        intentRisk: parsedRisk,
+        profileName: memory.profileName,
+        lastIntents: memory.lastIntents,
+        unresolved: memory.unresolved
+      });
+      await streamAssistantTurn(reply);
       return;
     }
     if (parsedRisk === "LOW" && !requiresConfirmation) {
@@ -425,17 +912,48 @@ function HatchRuntime(): JSX.Element {
       return;
     }
     if (parsedRisk === "LOW" && requiresConfirmation) {
-      await streamAssistantTurn(
-        `Intent confidence is ${formatConfidence(intentConfidence)}. Confirm with Enter/a, or rephrase to improve intent match.`
-      );
+      const fallback = `Intent confidence is ${formatConfidence(intentConfidence)}. Confirm with Enter/a, or rephrase to improve intent match.`;
+      const reply = await generateConversationalReply({
+        userText: raw,
+        fallback,
+        mode: "chat",
+        intentAction: parsed.intent.action,
+        intentRisk: parsedRisk,
+        profileName: memory.profileName,
+        lastIntents: memory.lastIntents,
+        unresolved: memory.unresolved
+      });
+      await streamAssistantTurn(reply);
       return;
     }
-    await streamAssistantTurn(
-      state.showDetails
-        ? "Awaiting approval. Press Enter or a to continue."
-        : `Ready to run ${parsed.intent.action} (${parsedRisk.toLowerCase()} risk). Press Enter to confirm, or e to edit.`
-    );
-  }, [addTurn, runExecution, state.currentIntent, state.currentRisk, state.showDetails, streamAssistantTurn, streamPhase]);
+    const fallback = state.showDetails
+      ? "Awaiting approval. Press Enter or a to continue."
+      : `Ready to run ${parsed.intent.action} (${parsedRisk.toLowerCase()} risk). Press Enter to confirm, or e to edit.`;
+    const reply = await generateConversationalReply({
+      userText: raw,
+      fallback,
+      mode: "chat",
+      intentAction: parsed.intent.action,
+      intentRisk: parsedRisk,
+      profileName: memory.profileName,
+      lastIntents: memory.lastIntents,
+      unresolved: memory.unresolved
+    });
+    await streamAssistantTurn(reply);
+  }, [
+    addTurn,
+    memory.lastIntents,
+    memory.profileName,
+    memory.unresolved,
+    rememberIntent,
+    rememberUnresolved,
+    runExecution,
+    state.currentIntent,
+    state.currentRisk,
+    state.showDetails,
+    streamAssistantTurn,
+    streamPhase
+  ]);
 
   const confirmOrExecute = useCallback(async (): Promise<void> => {
     if (state.phase === "INPUT") {
@@ -629,6 +1147,8 @@ function HatchRuntime(): JSX.Element {
   const industryMode = String(config?.industry?.mode || "hybrid");
   const industrySelected = String(config?.industry?.selected || "").trim();
   const industryLabel = industrySelected || `${industryMode} (auto)`;
+  const memoryLabel = memory.profileName ? memory.profileName : "anon";
+  const unresolvedCount = memory.unresolved.length;
   const riskTone = state.currentRisk === "HIGH" ? theme.error : state.currentRisk === "MEDIUM" ? theme.warning : theme.success;
   const phaseTone = state.phase === "EXECUTING" ? theme.accent : state.phase === "REJECTED" ? theme.warning : theme.text;
   const topActivity = state.liveLogs[state.liveLogs.length - 1];
@@ -657,7 +1177,7 @@ function HatchRuntime(): JSX.Element {
   return (
     <Box flexDirection="column">
       <Text color={theme.accent}>
-        Social Flow Hatch | runtime {runtimeLabel} | phase {state.phase.toLowerCase()} | risk {(state.currentRisk || "LOW").toLowerCase()} | confidence {confidenceLabel} | account {selectedAccount} | industry {industryLabel} | ai {aiLabel} | connected {connectedCount}/3
+        Social Flow Hatch | runtime {runtimeLabel} | phase {state.phase.toLowerCase()} | risk {(state.currentRisk || "LOW").toLowerCase()} | confidence {confidenceLabel} | account {selectedAccount} | industry {industryLabel} | ai {aiLabel} | memory {memoryLabel} | open {unresolvedCount} | connected {connectedCount}/3
       </Text>
       <Text color={theme.muted}>
         latest: {topActivity ? `${shortTime(topActivity.at)} ${topActivity.message.slice(0, 72)}` : "idle"}
@@ -728,6 +1248,7 @@ function HatchRuntime(): JSX.Element {
               { label: "Doctor", value: "doctor" },
               { label: "Status", value: "status" },
               { label: "WABA setup guide", value: "waba setup" },
+              { label: "WABA send example", value: "social waba send --from PHONE_ID --to +15551234567 --body \"Hello\"" },
               { label: "Config", value: "config" },
               { label: "Logs", value: "logs limit 20" },
               { label: "Replay latest", value: "replay latest" },
@@ -750,6 +1271,7 @@ function HatchRuntime(): JSX.Element {
           <Text color={theme.accent}>help</Text>
           <Text color={theme.text}>Workflow: describe, plan, approve, execute, review.</Text>
           <Text color={theme.text}>Commands: /help /doctor /status /config /logs /replay /why /ai ...</Text>
+          <Text color={theme.text}>Memory: say `my name is ...` and later ask `what's my name`.</Text>
           <Text color={theme.text}>Keys: Enter send/confirm, a approve, r reject, e edit slots, d diagnostics.</Text>
           <Text color={theme.muted}>UI: / palette, x collapse/expand diagnostics (verbose), up/down history, q quit.</Text>
         </Box>

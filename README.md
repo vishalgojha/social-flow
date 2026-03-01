@@ -24,6 +24,7 @@ railway up
 - Agent + chat workflows with risk-aware execution
 - Bundled Studio UI + API/WebSocket gateway (`social gateway`) for local and remote operation
 - External frontend integration option using secured gateway access (`x-gateway-key`)
+- Typed SDK-ready gateway routes (`/api/sdk/*`) for app integrations with guardrails
 - Ops control-plane commands for approvals, invites, handoff, and runbooks
 
 ## Install
@@ -93,6 +94,16 @@ social ops ...         # agency ops workflows + reports/handoff
 social hub ...         # package/connector trust + lifecycle
 ```
 
+SDK endpoints for integration apps:
+
+```bash
+GET  /api/sdk/status
+GET  /api/sdk/doctor
+GET  /api/sdk/actions
+POST /api/sdk/actions/plan
+POST /api/sdk/actions/execute
+```
+
 Agency portfolio view:
 
 ```bash
@@ -108,6 +119,7 @@ social marketing portfolio --targets-file ./agency-targets.json --include-missin
 - AI interface details: `docs/AI_INTERFACE.md`
 - Chat agent details: `docs/CHAT_AGENT.md`
 - Gateway API details: `docs/GATEWAY_UI.md`
+- TypeScript SDK usage: `sdk/README.md`
 - Command-surface v2 simplification map: `docs/CLI_V2_MIGRATION.md`
 - Deployment runbook: `DEPLOYMENT.md`
 - TypeScript migration plan: `docs/TYPESCRIPT_MIGRATION.md`

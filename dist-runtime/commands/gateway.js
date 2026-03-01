@@ -35,6 +35,7 @@ function registerGatewayCommands(program) {
         console.log(chalk.gray(`Studio: ${url}/`));
         console.log(chalk.gray(`Health: ${url}/api/health`));
         console.log(chalk.gray(`Status: ${url}/api/status`));
+        console.log(chalk.gray(`SDK: ${url}/api/sdk/actions`));
         console.log(chalk.gray('Tip: use `social start` for managed background mode.'));
         console.log(chalk.gray('Press Ctrl+C to stop.\n'));
         if (opts.open) {

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const { randomUUID, createHash } = require('crypto');
 const { URL } = require('url');
 const { WebSocketServer } = require('ws');
 const packageJson = require('../../package.json');
@@ -24,6 +25,17 @@ const SOURCE_CONNECTORS = new Set(
 const API_PUBLIC_ROUTES = new Set(['/api/health']);
 const DEFAULT_CORS_HEADERS = 'Content-Type, X-Gateway-Key, X-Session-Id, Authorization';
 const DEFAULT_CORS_METHODS = 'GET,POST,OPTIONS';
+const SDK_APPROVAL_TTL_MS = 10 * 60 * 1000;
+const SDK_ACTION_RISK = {
+  status: 'LOW',
+  doctor: 'LOW',
+  get_profile: 'LOW',
+  create_post: 'MEDIUM',
+  list_ads: 'LOW',
+  send_whatsapp: 'MEDIUM',
+  logs: 'LOW',
+  replay: 'HIGH'
+};
 
 function mimeFor(filePath) {
   const ext = path.extname(filePath).toLowerCase();
@@ -85,6 +97,204 @@ function sendFile(res, status, filePath, headers = {}) {
     ...(headers || {})
   });
   res.end(body);
+}
+
+function sdkTraceId() {
+  return `sdk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function sortedJson(value) {
+  if (Array.isArray(value)) return value.map((x) => sortedJson(x));
+  if (!isPlainObject(value)) return value;
+  const out = {};
+  Object.keys(value).sort().forEach((key) => {
+    out[key] = sortedJson(value[key]);
+  });
+  return out;
+}
+
+function sdkParamsHash(params) {
+  const normalized = sortedJson(isPlainObject(params) ? params : {});
+  return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+}
+
+function normalizeSdkAction(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  return Object.prototype.hasOwnProperty.call(SDK_ACTION_RISK, raw) ? raw : '';
+}
+
+function sdkRiskForAction(action) {
+  const a = normalizeSdkAction(action);
+  return a ? SDK_ACTION_RISK[a] : '';
+}
+
+function sdkRequiresApproval(action) {
+  const risk = sdkRiskForAction(action);
+  return risk === 'MEDIUM' || risk === 'HIGH';
+}
+
+function parseActId(input) {
+  const raw = String(input || '').trim();
+  if (!raw) return '';
+  return raw.startsWith('act_') ? raw : `act_${raw}`;
+}
+
+function parseScheduleToUnixSeconds(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  const ts = Date.parse(raw);
+  if (!Number.isFinite(ts)) return null;
+  return Math.floor(ts / 1000);
+}
+
+function sdkErrorPayload({ code, message, retryable = false, suggestedNextCommand = '', details = null }) {
+  return {
+    code: String(code || 'INTERNAL_ERROR').trim() || 'INTERNAL_ERROR',
+    message: String(message || 'Unexpected error').trim() || 'Unexpected error',
+    retryable: Boolean(retryable),
+    suggestedNextCommand: String(suggestedNextCommand || '').trim(),
+    details: details && typeof details === 'object' ? details : undefined
+  };
+}
+
+function sdkMeta({
+  action = '',
+  risk = '',
+  requiresApproval = false,
+  approvalToken = '',
+  approvalTokenExpiresAt = '',
+  source = 'gateway-sdk'
+} = {}) {
+  return {
+    action: String(action || '').trim(),
+    risk: String(risk || '').trim(),
+    requiresApproval: Boolean(requiresApproval),
+    approvalToken: String(approvalToken || '').trim() || null,
+    approvalTokenExpiresAt: String(approvalTokenExpiresAt || '').trim() || null,
+    source: String(source || 'gateway-sdk').trim() || 'gateway-sdk'
+  };
+}
+
+function sdkEnvelopeOk({
+  traceId,
+  data = {},
+  action = '',
+  risk = '',
+  requiresApproval = false,
+  approvalToken = '',
+  approvalTokenExpiresAt = ''
+} = {}) {
+  return {
+    ok: true,
+    traceId: String(traceId || sdkTraceId()),
+    data,
+    error: null,
+    meta: sdkMeta({ action, risk, requiresApproval, approvalToken, approvalTokenExpiresAt })
+  };
+}
+
+function sdkEnvelopeError({
+  traceId,
+  status = 400,
+  action = '',
+  risk = '',
+  requiresApproval = false,
+  approvalToken = '',
+  approvalTokenExpiresAt = '',
+  code = 'BAD_REQUEST',
+  message = 'Request failed',
+  retryable = false,
+  suggestedNextCommand = '',
+  details = null
+} = {}) {
+  return {
+    status: Number(status) || 400,
+    payload: {
+      ok: false,
+      traceId: String(traceId || sdkTraceId()),
+      data: null,
+      error: sdkErrorPayload({ code, message, retryable, suggestedNextCommand, details }),
+      meta: sdkMeta({ action, risk, requiresApproval, approvalToken, approvalTokenExpiresAt })
+    }
+  };
+}
+
+function sdkErrorFromThrown(error, fallback = {}) {
+  const status = Number(error?.response?.status || 0);
+  const apiError = error?.response?.data?.error || {};
+  const message = String(apiError.message || error?.message || fallback.message || 'Request failed').trim();
+  const code = String(apiError.code || fallback.code || 'EXECUTION_FAILED').trim() || 'EXECUTION_FAILED';
+  const retryable = status === 429 || (status >= 500 && status < 600);
+  return sdkEnvelopeError({
+    ...fallback,
+    status: status || fallback.status || 400,
+    code,
+    message,
+    retryable
+  });
+}
+
+function gatewayLogsDir() {
+  return path.join(process.cwd(), 'logs');
+}
+
+function listGatewayActionLogs(limit = 20) {
+  const dir = gatewayLogsDir();
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
+  const files = fs.readdirSync(dir).filter((name) => name.endsWith('.json'));
+  const out = [];
+  files.forEach((name) => {
+    const fullPath = path.join(dir, name);
+    try {
+      const raw = fs.readFileSync(fullPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      const stat = fs.statSync(fullPath);
+      const tsRaw = String(parsed.timestamp || parsed.createdAt || parsed.updatedAt || stat.mtime.toISOString());
+      const ts = Date.parse(tsRaw);
+      out.push({
+        id: String(parsed.id || path.basename(name, '.json')),
+        timestamp: Number.isFinite(ts) ? new Date(ts).toISOString() : stat.mtime.toISOString(),
+        action: String(parsed.action || ''),
+        params: isPlainObject(parsed.params) ? parsed.params : {},
+        latency: Number(parsed.latency || 0) || 0,
+        success: Boolean(parsed.success),
+        error: String(parsed.error || '').trim(),
+        rollback_plan: String(parsed.rollback_plan || '').trim(),
+        trace_id: String(parsed.trace_id || '').trim(),
+        risk: String(parsed.risk || '').trim()
+      });
+    } catch {
+      // ignore malformed log entries
+    }
+  });
+  out.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+  return out.slice(0, Math.max(1, Number(limit || 20)));
+}
+
+function appendGatewayActionLog(entry = {}) {
+  const dir = gatewayLogsDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const id = String(entry.id || randomUUID());
+  const record = {
+    id,
+    timestamp: String(entry.timestamp || new Date().toISOString()),
+    action: String(entry.action || ''),
+    params: isPlainObject(entry.params) ? entry.params : {},
+    latency: Number(entry.latency || 0) || 0,
+    success: Boolean(entry.success),
+    error: String(entry.error || '').trim() || undefined,
+    rollback_plan: String(entry.rollback_plan || 'No rollback').trim() || 'No rollback',
+    trace_id: String(entry.trace_id || '').trim() || undefined,
+    risk: String(entry.risk || '').trim() || undefined
+  };
+  fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify(record, null, 2), 'utf8');
+  return record;
 }
 
 function maskToken(token) {
@@ -545,10 +755,6 @@ function normalizeConnector(v) {
   return 'custom';
 }
 
-function isPlainObject(v) {
-  return Boolean(v) && typeof v === 'object' && !Array.isArray(v);
-}
-
 function guardPolicyPatchFromBody(body) {
   if (!isPlainObject(body)) return {};
   const patch = {};
@@ -847,6 +1053,7 @@ class GatewayServer {
     this.wsServer = null;
     this.wsClients = new Set();
     this.runtimes = new Map();
+    this.sdkApprovalTokens = new Map();
   }
 
   routeIsPublicApi(route) {
@@ -1165,6 +1372,263 @@ class GatewayServer {
     });
   }
 
+  cleanupSdkApprovalTokens(now = Date.now()) {
+    if (this.sdkApprovalTokens.size < 5000) return;
+    for (const [token, entry] of this.sdkApprovalTokens.entries()) {
+      if (!entry || Number(entry.expiresAt || 0) <= now) this.sdkApprovalTokens.delete(token);
+    }
+  }
+
+  issueSdkApprovalToken({ action, risk, params, actorId }) {
+    const now = Date.now();
+    this.cleanupSdkApprovalTokens(now);
+    const token = `ap_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+    const expiresAt = now + SDK_APPROVAL_TTL_MS;
+    this.sdkApprovalTokens.set(token, {
+      action: String(action || ''),
+      risk: String(risk || ''),
+      paramsHash: sdkParamsHash(params || {}),
+      actorId: String(actorId || '').trim() || '',
+      issuedAt: now,
+      expiresAt
+    });
+    return {
+      approvalToken: token,
+      approvalTokenExpiresAt: new Date(expiresAt).toISOString()
+    };
+  }
+
+  consumeSdkApprovalToken({ token, action, params }) {
+    const value = String(token || '').trim();
+    if (!value) {
+      return { ok: false, code: 'APPROVAL_REQUIRED', message: 'Approval token is required for this action.' };
+    }
+    const row = this.sdkApprovalTokens.get(value);
+    if (!row) {
+      return { ok: false, code: 'APPROVAL_INVALID', message: 'Approval token is invalid or already used.' };
+    }
+    if (Number(row.expiresAt || 0) <= Date.now()) {
+      this.sdkApprovalTokens.delete(value);
+      return { ok: false, code: 'APPROVAL_EXPIRED', message: 'Approval token expired. Request a new plan.' };
+    }
+    if (String(row.action || '') !== String(action || '')) {
+      return { ok: false, code: 'APPROVAL_MISMATCH', message: 'Approval token does not match this action.' };
+    }
+    if (String(row.paramsHash || '') !== sdkParamsHash(params || {})) {
+      return { ok: false, code: 'APPROVAL_MISMATCH', message: 'Approval token does not match current params.' };
+    }
+    this.sdkApprovalTokens.delete(value);
+    return { ok: true, approval: row };
+  }
+
+  sdkDoctorSnapshot() {
+    const tokens = {
+      facebook: Boolean(config.getToken('facebook')),
+      instagram: Boolean(config.getToken('instagram')),
+      whatsapp: Boolean(config.getToken('whatsapp'))
+    };
+    const defaultApi = String(config.getDefaultApi ? config.getDefaultApi() : 'facebook').trim() || 'facebook';
+    const blockers = [];
+    const advisories = [];
+
+    if (!tokens.facebook && !tokens.instagram && !tokens.whatsapp) {
+      blockers.push('No API tokens configured. Run `social auth login`.');
+    }
+    if (defaultApi && !tokens[defaultApi]) {
+      blockers.push(`Default API "${defaultApi}" has no token.`);
+    }
+    if (!config.hasAppCredentials || !config.hasAppCredentials()) {
+      advisories.push('App credentials are not configured (needed for some OAuth/debug flows).');
+    }
+    if (!config.getDefaultMarketingAdAccountId || !config.getDefaultMarketingAdAccountId()) {
+      advisories.push('Default ad account is not set.');
+    }
+
+    return {
+      ok: blockers.length === 0,
+      activeProfile: config.getActiveProfile ? config.getActiveProfile() : 'default',
+      defaultApi,
+      tokens,
+      defaults: {
+        facebookPageId: config.getDefaultFacebookPageId ? config.getDefaultFacebookPageId() : '',
+        whatsappPhoneNumberId: config.getDefaultWhatsAppPhoneNumberId ? config.getDefaultWhatsAppPhoneNumberId() : '',
+        marketingAdAccountId: config.getDefaultMarketingAdAccountId ? config.getDefaultMarketingAdAccountId() : ''
+      },
+      blockers,
+      advisories
+    };
+  }
+
+  requiredToken(apiName) {
+    const api = String(apiName || '').trim();
+    const token = String(config.getToken ? config.getToken(api) : '').trim();
+    if (token) return token;
+    if (api === 'whatsapp') {
+      throw new Error('Missing WhatsApp token. Run `social auth login -a whatsapp`.');
+    }
+    throw new Error(`Missing ${api} token. Run \`social auth login -a ${api}\`.`);
+  }
+
+  async executeSdkAction(action, params = {}) {
+    const normalizedAction = normalizeSdkAction(action);
+    if (!normalizedAction) throw new Error(`Unsupported SDK action: ${action}`);
+
+    if (normalizedAction === 'status') {
+      return {
+        service: 'social-api-gateway',
+        version: packageJson.version,
+        workspace: config.getActiveProfile() || 'default',
+        now: new Date().toISOString(),
+        config: configSnapshot()
+      };
+    }
+
+    if (normalizedAction === 'doctor') {
+      return this.sdkDoctorSnapshot();
+    }
+
+    if (normalizedAction === 'get_profile') {
+      const token = this.requiredToken('facebook');
+      const fields = String(params.fields || 'id,name').trim() || 'id,name';
+      const client = new MetaAPIClient(token, 'facebook');
+      return await client.getMe(fields);
+    }
+
+    if (normalizedAction === 'create_post') {
+      const userToken = this.requiredToken('facebook');
+      const message = String(params.message || '').trim();
+      const link = String(params.link || '').trim();
+      if (!message && !link) throw new Error('create_post requires `message` or `link`.');
+
+      const userClient = new MetaAPIClient(userToken, 'facebook');
+      const pagesResult = await userClient.getFacebookPages(50);
+      const pages = asArray(pagesResult?.data);
+      if (!pages.length) throw new Error('No Facebook pages available for this token.');
+
+      const requestedPageId = String(
+        params.pageId
+        || params.page
+        || (config.getDefaultFacebookPageId ? config.getDefaultFacebookPageId() : '')
+      ).trim();
+      const selected = pages.find((row) => String(row?.id || '') === requestedPageId) || pages[0];
+      const pageId = String(selected?.id || '').trim();
+      const pageAccessToken = String(selected?.access_token || '').trim();
+      if (!pageId || !pageAccessToken) {
+        throw new Error('Unable to resolve page access token for post creation.');
+      }
+
+      const payload = {};
+      if (message) payload.message = message;
+      if (link) payload.link = link;
+      const scheduleValue = parseScheduleToUnixSeconds(params.schedule);
+      if (params.schedule && !scheduleValue) {
+        throw new Error('Invalid schedule value. Use unix seconds or ISO date.');
+      }
+      const draft = toBool(params.draft, false);
+      if (scheduleValue) {
+        payload.published = false;
+        payload.scheduled_publish_time = scheduleValue;
+      } else if (draft) {
+        payload.published = false;
+      }
+
+      const pageClient = new MetaAPIClient(pageAccessToken, 'facebook');
+      const result = await pageClient.postToPage(pageId, payload);
+      return {
+        pageId,
+        postId: String(result?.id || ''),
+        result
+      };
+    }
+
+    if (normalizedAction === 'list_ads') {
+      const token = this.requiredToken('facebook');
+      const adAccountId = parseActId(
+        params.adAccountId
+        || params.accountId
+        || (config.getDefaultMarketingAdAccountId ? config.getDefaultMarketingAdAccountId() : '')
+      );
+      if (!adAccountId) throw new Error('Missing ad account id. Set default or pass `adAccountId`.');
+      const limit = Math.max(1, Math.min(200, Number(params.limit || 25) || 25));
+      const fields = String(params.fields || 'id,name,objective,status,daily_budget').trim() || 'id,name,objective,status,daily_budget';
+      const client = new MetaAPIClient(token, 'facebook');
+      const result = await client.get(`/${adAccountId}/campaigns`, { fields, limit });
+      return {
+        adAccountId,
+        count: asArray(result?.data).length,
+        result
+      };
+    }
+
+    if (normalizedAction === 'send_whatsapp') {
+      const token = this.requiredToken('whatsapp');
+      const from = String(
+        params.from
+        || params.phoneNumberId
+        || (config.getDefaultWhatsAppPhoneNumberId ? config.getDefaultWhatsAppPhoneNumberId() : '')
+      ).trim();
+      const to = String(params.to || '').trim();
+      const body = String(params.body || '').trim();
+      if (!from) throw new Error('Missing WhatsApp phone number id (`from`).');
+      if (!to) throw new Error('Missing destination number (`to`).');
+      if (!body) throw new Error('Missing message body (`body`).');
+      const client = new MetaAPIClient(token, 'whatsapp');
+      const result = await client.sendWhatsAppMessage(from, {
+        messaging_product: 'whatsapp',
+        to,
+        type: 'text',
+        text: { body }
+      });
+      return {
+        from,
+        to,
+        messageId: String(result?.messages?.[0]?.id || ''),
+        result
+      };
+    }
+
+    if (normalizedAction === 'logs') {
+      const limit = Math.max(1, Math.min(100, Number(params.limit || 20) || 20));
+      const items = listGatewayActionLogs(limit);
+      return {
+        count: items.length,
+        items
+      };
+    }
+
+    if (normalizedAction === 'replay') {
+      const requestedId = String(params.id || '').trim().toLowerCase();
+      const logs = listGatewayActionLogs(200);
+      if (!logs.length) throw new Error('No logs available for replay.');
+      const target = (requestedId === 'latest' || requestedId === 'last' || !requestedId)
+        ? logs[0]
+        : logs.find((row) => String(row.id || '').toLowerCase() === requestedId);
+      if (!target) throw new Error(`Replay log not found: ${requestedId}`);
+      const sourceAction = String(target.action || '').trim();
+      const mappedAction = sourceAction.startsWith('sdk:')
+        ? normalizeSdkAction(sourceAction.slice(4))
+        : (sourceAction === 'get:profile'
+          ? 'get_profile'
+          : sourceAction === 'create:post'
+            ? 'create_post'
+            : sourceAction === 'list:ads'
+              ? 'list_ads'
+              : '');
+      if (!mappedAction || mappedAction === 'replay') {
+        throw new Error(`Replay unsupported for action ${sourceAction || '<empty>'}`);
+      }
+      const replayData = await this.executeSdkAction(mappedAction, isPlainObject(target.params) ? target.params : {});
+      return {
+        replayedLogId: target.id,
+        originalAction: sourceAction,
+        mappedAction,
+        data: replayData
+      };
+    }
+
+    throw new Error(`No executor for action ${normalizedAction}`);
+  }
+
   async handleApi(req, res, parsedUrl) {
     const route = parsedUrl.pathname || '/';
 
@@ -1187,6 +1651,249 @@ class GatewayServer {
         now: new Date().toISOString(),
         config: configSnapshot()
       });
+      return;
+    }
+
+    if (req.method === 'GET' && route === '/api/sdk/status') {
+      const traceId = sdkTraceId();
+      const action = 'status';
+      const risk = sdkRiskForAction(action);
+      const data = await this.executeSdkAction(action, {});
+      sendJson(res, 200, sdkEnvelopeOk({
+        traceId,
+        action,
+        risk,
+        requiresApproval: false,
+        data
+      }));
+      return;
+    }
+
+    if (req.method === 'GET' && route === '/api/sdk/doctor') {
+      const traceId = sdkTraceId();
+      const action = 'doctor';
+      const risk = sdkRiskForAction(action);
+      const data = await this.executeSdkAction(action, {});
+      sendJson(res, 200, sdkEnvelopeOk({
+        traceId,
+        action,
+        risk,
+        requiresApproval: false,
+        data
+      }));
+      return;
+    }
+
+    if (req.method === 'GET' && route === '/api/sdk/actions') {
+      const traceId = sdkTraceId();
+      const actions = Object.keys(SDK_ACTION_RISK).map((action) => ({
+        action,
+        risk: sdkRiskForAction(action),
+        requiresApproval: sdkRequiresApproval(action)
+      }));
+      sendJson(res, 200, sdkEnvelopeOk({
+        traceId,
+        action: 'actions',
+        risk: 'LOW',
+        requiresApproval: false,
+        data: { actions }
+      }));
+      return;
+    }
+
+    if (req.method === 'POST' && route === '/api/sdk/actions/plan') {
+      const traceId = sdkTraceId();
+      try {
+        const body = await readBody(req);
+        const action = normalizeSdkAction(body.action);
+        if (!action) {
+          const invalid = sdkEnvelopeError({
+            traceId,
+            status: 400,
+            action: String(body.action || ''),
+            code: 'INVALID_ACTION',
+            message: 'Unsupported action.',
+            suggestedNextCommand: 'Use GET /api/sdk/actions to list supported actions.',
+            details: { supportedActions: Object.keys(SDK_ACTION_RISK) }
+          });
+          sendJson(res, invalid.status, invalid.payload);
+          return;
+        }
+
+        const params = isPlainObject(body.params) ? body.params : {};
+        const risk = sdkRiskForAction(action);
+        const requiresApproval = sdkRequiresApproval(action);
+        let approvalToken = '';
+        let approvalTokenExpiresAt = '';
+        if (requiresApproval) {
+          const issued = this.issueSdkApprovalToken({
+            action,
+            risk,
+            params,
+            actorId: resolveRequestActor().id
+          });
+          approvalToken = issued.approvalToken;
+          approvalTokenExpiresAt = issued.approvalTokenExpiresAt;
+        }
+
+        sendJson(res, 200, sdkEnvelopeOk({
+          traceId,
+          action,
+          risk,
+          requiresApproval,
+          approvalToken,
+          approvalTokenExpiresAt,
+          data: {
+            planned: true,
+            action,
+            params,
+            risk,
+            requiresApproval,
+            approvalToken: approvalToken || null,
+            approvalTokenExpiresAt: approvalTokenExpiresAt || null
+          }
+        }));
+      } catch (error) {
+        const failed = sdkErrorFromThrown(error, {
+          traceId,
+          status: 400,
+          action: 'plan',
+          risk: 'LOW',
+          code: 'PLAN_FAILED',
+          message: 'Unable to create action plan.'
+        });
+        sendJson(res, failed.status, failed.payload);
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && route === '/api/sdk/actions/execute') {
+      const traceId = sdkTraceId();
+      const startedAt = Date.now();
+      let actionForLog = '';
+      let paramsForLog = {};
+      try {
+        const body = await readBody(req);
+        const action = normalizeSdkAction(body.action);
+        actionForLog = action;
+        if (!action) {
+          const invalid = sdkEnvelopeError({
+            traceId,
+            status: 400,
+            action: String(body.action || ''),
+            code: 'INVALID_ACTION',
+            message: 'Unsupported action.',
+            suggestedNextCommand: 'Use GET /api/sdk/actions to list supported actions.',
+            details: { supportedActions: Object.keys(SDK_ACTION_RISK) }
+          });
+          sendJson(res, invalid.status, invalid.payload);
+          return;
+        }
+
+        const params = isPlainObject(body.params) ? body.params : {};
+        paramsForLog = params;
+        const risk = sdkRiskForAction(action);
+        const requiresApproval = sdkRequiresApproval(action);
+        const approvalTokenIn = String(body.approvalToken || '').trim();
+        const approvalReason = String(body.approvalReason || '').trim();
+
+        if (requiresApproval) {
+          const consumed = this.consumeSdkApprovalToken({
+            token: approvalTokenIn,
+            action,
+            params
+          });
+          if (!consumed.ok) {
+            const issued = this.issueSdkApprovalToken({
+              action,
+              risk,
+              params,
+              actorId: resolveRequestActor().id
+            });
+            const approvalRequired = sdkEnvelopeError({
+              traceId,
+              status: 428,
+              action,
+              risk,
+              requiresApproval: true,
+              approvalToken: issued.approvalToken,
+              approvalTokenExpiresAt: issued.approvalTokenExpiresAt,
+              code: consumed.code || 'APPROVAL_REQUIRED',
+              message: consumed.message || 'Approval token required.',
+              suggestedNextCommand: 'Call /api/sdk/actions/execute again with approvalToken and approvalReason.'
+            });
+            sendJson(res, approvalRequired.status, approvalRequired.payload);
+            return;
+          }
+          if (risk === 'HIGH' && !approvalReason) {
+            const issued = this.issueSdkApprovalToken({
+              action,
+              risk,
+              params,
+              actorId: resolveRequestActor().id
+            });
+            const reasonRequired = sdkEnvelopeError({
+              traceId,
+              status: 400,
+              action,
+              risk,
+              requiresApproval: true,
+              approvalToken: issued.approvalToken,
+              approvalTokenExpiresAt: issued.approvalTokenExpiresAt,
+              code: 'APPROVAL_REASON_REQUIRED',
+              message: 'High-risk actions require approvalReason.',
+              suggestedNextCommand: 'Retry /api/sdk/actions/execute with approvalReason.'
+            });
+            sendJson(res, reasonRequired.status, reasonRequired.payload);
+            return;
+          }
+        }
+
+        const data = await this.executeSdkAction(action, params);
+        appendGatewayActionLog({
+          action: `sdk:${action}`,
+          params,
+          latency: Date.now() - startedAt,
+          success: true,
+          rollback_plan: action === 'create_post'
+            ? 'Delete created post if needed.'
+            : action === 'send_whatsapp'
+              ? 'No rollback for sent messages.'
+              : 'Read-only. No rollback required.',
+          trace_id: traceId,
+          risk
+        });
+        sendJson(res, 200, sdkEnvelopeOk({
+          traceId,
+          action,
+          risk,
+          requiresApproval,
+          data
+        }));
+      } catch (error) {
+        const action = normalizeSdkAction(actionForLog) || '';
+        const risk = sdkRiskForAction(action) || 'LOW';
+        appendGatewayActionLog({
+          action: action ? `sdk:${action}` : 'sdk:unknown',
+          params: isPlainObject(paramsForLog) ? paramsForLog : {},
+          latency: Date.now() - startedAt,
+          success: false,
+          error: String(error?.message || error || ''),
+          rollback_plan: 'No rollback',
+          trace_id: traceId,
+          risk
+        });
+        const failed = sdkErrorFromThrown(error, {
+          traceId,
+          status: 400,
+          action,
+          risk,
+          requiresApproval: sdkRequiresApproval(action),
+          code: 'EXECUTION_FAILED',
+          message: 'Action execution failed.'
+        });
+        sendJson(res, failed.status, failed.payload);
+      }
       return;
     }
 

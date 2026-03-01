@@ -12,7 +12,7 @@ export function handleSlashCommand(input: string): SlashCommandResult {
   if (cmd === "/help") {
     return {
       consumed: true,
-      systemMessage: "Commands: /help, /doctor, /status, /config, /logs, /replay latest, /ai <intent>"
+      systemMessage: "Commands: /help, /doctor, /status, /config, /logs, /replay latest, /ai <intent>. Memory: `my name is ...`."
     };
   }
   if (cmd === "/doctor") return { consumed: true, inputToExecute: "doctor" };

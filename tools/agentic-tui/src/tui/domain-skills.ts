@@ -52,6 +52,7 @@ const DOMAIN_SKILLS: Record<DomainSkillId, DomainSkillProfile> = {
     purpose: "I can guide WhatsApp Cloud API setup, template sends, and webhook checks.",
     suggestions: [
       "social integrations connect waba",
+      "social waba send --from PHONE_ID --to +15551234567 --body \"Hello\"",
       "social waba send --help",
       "/ai send whatsapp test to +15551234567"
     ]

@@ -33,7 +33,39 @@ For remote hosting (Railway + external frontend), run gateway with a real API ke
 - `POST /api/ai`
 - `POST /api/execute`
 - `POST /api/cancel`
+- `GET /api/sdk/status`
+- `GET /api/sdk/doctor`
+- `GET /api/sdk/actions`
+- `POST /api/sdk/actions/plan`
+- `POST /api/sdk/actions/execute`
 - `WS /ws`
+
+## SDK Contract
+
+`/api/sdk/*` routes return a stable envelope:
+
+```json
+{
+  "ok": true,
+  "traceId": "sdk_xxx",
+  "data": {},
+  "error": null,
+  "meta": {
+    "action": "create_post",
+    "risk": "MEDIUM",
+    "requiresApproval": true,
+    "approvalToken": "ap_xxx",
+    "approvalTokenExpiresAt": "2026-01-01T00:00:00.000Z",
+    "source": "gateway-sdk"
+  }
+}
+```
+
+For medium/high-risk actions:
+
+1. Call `POST /api/sdk/actions/plan`
+2. Use returned `approvalToken`
+3. Call `POST /api/sdk/actions/execute` with `approvalToken` (and `approvalReason` for high-risk)
 
 ## Session Model
 

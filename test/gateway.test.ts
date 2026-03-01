@@ -194,6 +194,69 @@ module.exports = [
     }
   },
   {
+    name: 'gateway sdk routes expose action catalog and approval-safe plan/execute flow',
+    fn: async () => {
+      const oldHome = process.env.META_CLI_HOME;
+      process.env.META_CLI_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-gw-test-'));
+      const server = createGatewayServer({ host: '127.0.0.1', port: 0 });
+      try {
+        await server.start();
+
+        const actions = await requestJson({
+          port: server.port,
+          method: 'GET',
+          pathName: '/api/sdk/actions'
+        });
+        assert.equal(actions.status, 200);
+        assert.equal(actions.data.ok, true);
+        assert.equal(Array.isArray(actions.data.data.actions), true);
+
+        const plan = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/sdk/actions/plan',
+          body: {
+            action: 'create_post',
+            params: { message: 'hello world', pageId: '123' }
+          }
+        });
+        assert.equal(plan.status, 200);
+        assert.equal(plan.data.ok, true);
+        assert.equal(plan.data.meta.action, 'create_post');
+        assert.equal(plan.data.meta.requiresApproval, true);
+        assert.equal(Boolean(plan.data.meta.approvalToken), true);
+
+        const executeWithoutApproval = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/sdk/actions/execute',
+          body: {
+            action: 'create_post',
+            params: { message: 'hello world', pageId: '123' }
+          }
+        });
+        assert.equal(executeWithoutApproval.status, 428);
+        assert.equal(executeWithoutApproval.data.ok, false);
+        assert.equal(executeWithoutApproval.data.error.code, 'APPROVAL_REQUIRED');
+
+        const executeLowRisk = await requestJson({
+          port: server.port,
+          method: 'POST',
+          pathName: '/api/sdk/actions/execute',
+          body: { action: 'status', params: {} }
+        });
+        assert.equal(executeLowRisk.status, 200);
+        assert.equal(executeLowRisk.data.ok, true);
+        assert.equal(executeLowRisk.data.meta.action, 'status');
+        assert.equal(executeLowRisk.data.meta.requiresApproval, false);
+        assert.equal(executeLowRisk.data.data.service, 'social-api-gateway');
+      } finally {
+        await server.stop();
+        process.env.META_CLI_HOME = oldHome;
+      }
+    }
+  },
+  {
     name: 'gateway config endpoint returns sanitized snapshot',
     fn: async () => {
       const oldHome = process.env.META_CLI_HOME;

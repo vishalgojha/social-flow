@@ -5,6 +5,27 @@ export interface ChatTurn {
   text: string;
 }
 
+export interface MemoryIntentRecord {
+  at: string;
+  text: string;
+  action: string;
+}
+
+export interface MemoryUnresolvedRecord {
+  at: string;
+  text: string;
+  reason: string;
+}
+
+export interface HatchMemorySnapshot {
+  sessionId: string;
+  updatedAt: string;
+  profileName: string;
+  lastIntents: MemoryIntentRecord[];
+  unresolved: MemoryUnresolvedRecord[];
+  turns: ChatTurn[];
+}
+
 export interface ConfigSnapshot {
   activeProfile?: string;
   tokenSet: boolean;
