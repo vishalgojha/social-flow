@@ -52,7 +52,7 @@ function registerStartCommand(program) {
     .option('--rate-limit-window-ms <ms>', 'Rate limit window in milliseconds', '60000')
     .option('--foreground', 'Run in current terminal (Ctrl+C to stop)', false)
     .option('--force', 'Bypass readiness blockers', false)
-    .option('--open', 'Open bundled Studio UI in browser after launch', false)
+    .option('--open', 'Open gateway status page in browser after launch', false)
     .action(async (opts) => {
       const report = buildReadinessReport();
       if (!report.ok && !opts.force) {
@@ -98,7 +98,7 @@ function registerStartCommand(program) {
       }
 
       if (opts.open) {
-        await openUrl(`${url}/`);
+        await openUrl(`${url}/api/status?doctor=1`);
       }
 
       console.log(chalk.gray('Stop later with: social stop\n'));

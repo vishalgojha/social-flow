@@ -2,30 +2,76 @@
 
 ![Social Flow Mint Logo](docs/assets/social-flow-logo-mint.svg)
 
-An agentic operations platform for Meta APIs (Facebook, Instagram, WhatsApp, and Marketing API), with a terminal command surface, a bundled Studio UI, and an API/WebSocket gateway.
+Run Meta operations without chaos.
 
-Built for developers and agencies that want one consistent system for auth, execution, analytics, and guarded automation.
+Social Flow is a guided control plane for agencies, growth teams, and account operators managing Facebook, Instagram, WhatsApp, and Ads Manager workflows. It gives you one place for setup, daily execution, approvals, reporting, and handoffs via commands, gateway APIs, and an SDK.
+
+Built for non-developer operators first, while still being developer-friendly for automation and integration.
+
+## What Social Flow Is Capable Of
+
+- Guided setup and readiness checks for tokens, apps, and account access
+- Daily operations across Facebook, Instagram, and WhatsApp from one command surface
+- Ads Manager workflows including account discovery, campaign/ad set/ad visibility, insights, pacing checks, and guarded mutations
+- Team-safe execution with approvals, invites, role-aware access, and handoff runbooks
+- AI-assisted planning and chat-first workflows with confirmation before risky actions
+- API/WebSocket gateway for local or remote operation
+- SDK-based integration for internal tools, client portals, and automation layers
+
+## Ads Manager, Framed for Operators
+
+Social Flow covers everyday Ads Manager work without forcing teams to wire custom scripts or jump between tools.
+
+- Understand account access and connected ad accounts quickly
+- Check portfolio-level pacing and risk flags across multiple clients
+- Pull campaign, ad set, ad, and insights data with deterministic commands
+- Run high-risk changes (status/budget/create) through explicit confirmation flows
+
+Useful starting commands:
+
+```bash
+social marketing accounts
+social marketing status
+social marketing portfolio --preset last_7d --target-daily 250
+social marketing insights --help
+```
+
+## Can It Help Reduce Ad Costs?
+
+Yes, by helping teams spot waste earlier and make safer optimization decisions.
+
+- Pull ad account, campaign, ad set, and ad insights in repeatable formats
+- Track pacing and spend risk across profiles before budgets drift
+- Compare performance slices with breakdowns (age, gender, placement, device)
+- Gate high-risk spend changes (budget/status/create) behind explicit confirmation
+
+Starter diagnostics:
+
+```bash
+social marketing status
+social marketing portfolio --preset last_7d --target-daily 250
+social marketing insights --preset last_7d --level ad --breakdowns placement,device_platform --table
+social marketing campaigns --status ACTIVE --table
+social marketing diagnose-poor-ads --preset last_7d --top 15
+```
+
+Important: Social Flow does not automatically "optimize spend" on its own. It gives teams visibility, guardrails, and execution control so operators can reduce wasted spend with better decisions.
 
 ## Do This First
+
+```bash
+social start-here
+social hatch
+```
+
+If you are running from source (developer workflow):
 
 ```bash
 npm ci
 npm run build
 npm start
 npm run quality:check
-railway up
 ```
-
-## Why Use Social Flow
-
-- One auth surface across Meta APIs
-- Profile-based multi-account workflows
-- Deterministic commands for posting/querying/marketing
-- Agent + chat workflows with risk-aware execution
-- Bundled Studio UI + API/WebSocket gateway (`social gateway`) for local and remote operation
-- External frontend integration option using secured gateway access (`x-gateway-key`)
-- Typed SDK-ready gateway routes (`/api/sdk/*`) for app integrations with guardrails
-- Ops control-plane commands for approvals, invites, handoff, and runbooks
 
 ## Install
 
@@ -69,7 +115,7 @@ If `social` is not recognized in your current terminal, open a new terminal and 
 
 ## Railway + Frontend (Agentic)
 
-- Deploy gateway on Railway (bundled Studio is available at `/` plus API/WebSocket routes)
+- Deploy gateway on Railway (API/WebSocket routes)
 - Set `SOCIAL_GATEWAY_API_KEY` and `SOCIAL_GATEWAY_CORS_ORIGINS`
 - Connect your frontend with `x-gateway-key` header on REST and `?gatewayKey=` on `/ws`
 - Optional launcher:

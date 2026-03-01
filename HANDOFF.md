@@ -4,6 +4,62 @@
 
 This handoff captures the current TypeScript migration status and release readiness for `social-flow`.
 
+## Update - 2026-03-01
+
+### Product Positioning + Surface Update
+
+- Product language was shifted from "CLI tool" to "Meta Operations Control Plane".
+- Messaging now frames Social Flow as multi-surface:
+  - CLI + chat/tui
+  - gateway APIs/WebSocket
+  - SDK integration
+- README, command help text, and package description were updated accordingly.
+
+### Ads Operations: Poor-Ad Diagnosis Command
+
+- Added a new command:
+  - `social marketing diagnose-poor-ads [adAccountId]`
+- Command behavior:
+  - pulls ad-level insights
+  - computes median-based baselines for CTR/CPC/CPM
+  - flags likely underperformers using configurable thresholds
+  - ranks by severity and reports `spend_at_risk_estimate`
+  - returns recommended next actions per ad
+- Added examples in global help and README.
+
+### Bundled Studio Frontend Removal (Explicit)
+
+- Deleted bundled frontend assets:
+  - `assets/studio/*`
+- Gateway root (`/`) no longer serves UI and now returns disabled/deprecated response.
+- `social studio` command now opens:
+  - external frontend if provided, or
+  - gateway status endpoint (`/api/status?doctor=1`)
+- Help/docs strings were updated to remove bundled Studio UI claims.
+
+### Files Touched in This Update
+
+- `commands/marketing.ts`
+- `bin/social.ts`
+- `commands/studio.ts`
+- `commands/start.ts`
+- `commands/explain.ts`
+- `src-runtime/commands/gateway.ts`
+- `lib/gateway/server.ts`
+- `README.md`
+- `package.json`
+- generated runtime build artifact: `dist-runtime/commands/gateway.js`
+
+### Validation Run
+
+- `npm run build:runtime-ts` -> pass
+- `npm run build:legacy-ts` -> pass
+- `node bin/social.js --help` -> updated positioning/help verified
+- `node bin/social.js marketing diagnose-poor-ads --help` -> command available
+- fresh gateway test on new port:
+  - `/` returns disabled response
+  - `/api/status?doctor=1` returns status JSON
+
 ## What Was Completed
 
 1. Runtime TS command migration and loader routing.

@@ -1,7 +1,7 @@
 {
   "name": "@vishalgojha/social-flow",
   "version": "0.2.17",
-  "description": "Social Flow CLI for Meta API operations (Facebook, Instagram, WhatsApp).",
+  "description": "Meta Operations Control Plane for Facebook, Instagram, WhatsApp, and Ads Manager (CLI, Gateway, SDK).",
   "main": "dist-legacy/index.js",
   "bin": {
     "social": "dist-legacy/bin/social.js",

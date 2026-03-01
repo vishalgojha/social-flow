@@ -7,7 +7,7 @@ function registerGatewayCommands(program) {
     const defaultPort = process.env.PORT || '1310';
     program
         .command('gateway')
-        .description('Run localhost API gateway with bundled Studio UI')
+        .description('Run localhost API gateway (API + WebSocket)')
         .option('--host <host>', 'Host address', defaultHost)
         .option('--port <port>', 'Port number', defaultPort)
         .option('--api-key <key>', 'Gateway API key for protected access (header: x-gateway-key)')
@@ -32,14 +32,13 @@ function registerGatewayCommands(program) {
         const url = server.url();
         console.log(chalk.green('\nSocial Flow API Gateway is running.'));
         console.log(chalk.cyan(`Gateway: ${url}`));
-        console.log(chalk.gray(`Studio: ${url}/`));
         console.log(chalk.gray(`Health: ${url}/api/health`));
         console.log(chalk.gray(`Status: ${url}/api/status`));
         console.log(chalk.gray(`SDK: ${url}/api/sdk/actions`));
         console.log(chalk.gray('Tip: use `social start` for managed background mode.'));
         console.log(chalk.gray('Press Ctrl+C to stop.\n'));
         if (opts.open) {
-            await openUrl(`${url}/`);
+            await openUrl(`${url}/api/status?doctor=1`);
         }
         const shutdown = async () => {
             await server.stop();

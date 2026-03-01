@@ -168,6 +168,180 @@ function summarizePortfolioRows(rows) {
   };
 }
 
+function parseIntegerOrFallback(value, fallback = 0) {
+  const n = parseInt(String(value || ''), 10);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return n;
+}
+
+function median(values) {
+  const sorted = (Array.isArray(values) ? values : [])
+    .map((v) => parseNumberOrZero(v))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b);
+  if (!sorted.length) return 0;
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[mid];
+  return (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function roundMetric(value, digits = 2) {
+  const n = parseNumberOrZero(value);
+  return Number(n.toFixed(digits));
+}
+
+function normalizeAdInsightRow(row) {
+  return {
+    ad_id: String(row?.ad_id || ''),
+    ad_name: String(row?.ad_name || ''),
+    campaign_id: String(row?.campaign_id || ''),
+    campaign_name: String(row?.campaign_name || ''),
+    adset_id: String(row?.adset_id || ''),
+    adset_name: String(row?.adset_name || ''),
+    spend: parseNumberOrZero(row?.spend),
+    impressions: Math.round(parseNumberOrZero(row?.impressions)),
+    clicks: Math.round(parseNumberOrZero(row?.clicks)),
+    ctr: parseNumberOrZero(row?.ctr), // % value from Ads Insights
+    cpc: parseNumberOrZero(row?.cpc),
+    cpm: parseNumberOrZero(row?.cpm)
+  };
+}
+
+function reasonLabel(code) {
+  if (code === 'no_clicks_on_spend') return 'spent_with_no_clicks';
+  if (code === 'low_ctr') return 'low_ctr_vs_baseline';
+  if (code === 'high_cpc') return 'high_cpc_vs_baseline';
+  if (code === 'high_cpm') return 'high_cpm_vs_baseline';
+  return code;
+}
+
+function recommendationForReasons(reasons) {
+  const set = new Set(Array.isArray(reasons) ? reasons : []);
+  if (set.has('no_clicks_on_spend')) {
+    return 'Pause or refresh this ad before more spend.';
+  }
+  if (set.has('low_ctr') && set.has('high_cpc')) {
+    return 'Refresh creative and tighten audience/placements.';
+  }
+  if (set.has('low_ctr')) return 'Test a new hook/creative variant.';
+  if (set.has('high_cpc')) return 'Adjust targeting or bid strategy.';
+  if (set.has('high_cpm')) return 'Review placement mix and audience overlap.';
+  return 'Review relevance, audience fit, and landing page intent.';
+}
+
+function diagnosePoorAds(rows, options = {}) {
+  const minImpressions = parsePositiveNumber(options.minImpressions, 1000);
+  const minClicks = parsePositiveNumber(options.minClicks, 5);
+  const minSpend = parsePositiveNumber(options.minSpend, 10);
+  const ctrDropFactor = parsePositiveNumber(options.ctrDropFactor, 0.6) || 0.6;
+  const cpcRiseFactor = parsePositiveNumber(options.cpcRiseFactor, 1.5) || 1.5;
+  const cpmRiseFactor = parsePositiveNumber(options.cpmRiseFactor, 1.4) || 1.4;
+
+  const normalized = (Array.isArray(rows) ? rows : [])
+    .map(normalizeAdInsightRow)
+    .filter((r) => r.ad_id || r.ad_name);
+
+  const ctrBaseline = median(
+    normalized
+      .filter((r) => r.impressions >= minImpressions && r.ctr > 0)
+      .map((r) => r.ctr)
+  ) || 1.0;
+
+  const cpcBaseline = median(
+    normalized
+      .filter((r) => r.clicks >= minClicks && r.cpc > 0)
+      .map((r) => r.cpc)
+  ) || 2.0;
+
+  const cpmBaseline = median(
+    normalized
+      .filter((r) => r.impressions >= minImpressions && r.cpm > 0)
+      .map((r) => r.cpm)
+  ) || 20.0;
+
+  const ctrThreshold = Math.max(0.1, ctrBaseline * ctrDropFactor);
+  const cpcThreshold = Math.max(0.1, cpcBaseline * cpcRiseFactor);
+  const cpmThreshold = Math.max(0.1, cpmBaseline * cpmRiseFactor);
+
+  const flagged = [];
+  normalized.forEach((r) => {
+    if (r.spend < minSpend && r.impressions < minImpressions) return;
+
+    const reasons = [];
+    let score = 0;
+
+    if (r.spend >= minSpend && r.clicks === 0) {
+      reasons.push('no_clicks_on_spend');
+      score += 4;
+    }
+    if (r.impressions >= minImpressions && r.ctr <= ctrThreshold) {
+      reasons.push('low_ctr');
+      score += 3;
+    }
+    if (r.clicks >= minClicks && r.cpc >= cpcThreshold) {
+      reasons.push('high_cpc');
+      score += 2;
+    }
+    if (r.impressions >= minImpressions && r.cpm >= cpmThreshold) {
+      reasons.push('high_cpm');
+      score += 1;
+    }
+    if (!reasons.length) return;
+
+    let spendAtRisk = 0;
+    if (reasons.includes('no_clicks_on_spend')) spendAtRisk = r.spend;
+    else if (reasons.includes('low_ctr')) spendAtRisk = r.spend * 0.45;
+    if (reasons.includes('high_cpc')) spendAtRisk += r.spend * 0.2;
+    spendAtRisk = Math.min(r.spend, spendAtRisk);
+
+    flagged.push({
+      ...r,
+      score,
+      reasons,
+      reason_labels: reasons.map(reasonLabel),
+      recommended_action: recommendationForReasons(reasons),
+      spend_at_risk_estimate: roundMetric(spendAtRisk, 2)
+    });
+  });
+
+  flagged.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (b.spend !== a.spend) return b.spend - a.spend;
+    return b.impressions - a.impressions;
+  });
+
+  const scannedSpend = normalized.reduce((acc, r) => acc + parseNumberOrZero(r.spend), 0);
+  const flaggedSpend = flagged.reduce((acc, r) => acc + parseNumberOrZero(r.spend), 0);
+  const spendAtRisk = flagged.reduce((acc, r) => acc + parseNumberOrZero(r.spend_at_risk_estimate), 0);
+
+  return {
+    thresholds: {
+      min_impressions: minImpressions,
+      min_clicks: minClicks,
+      min_spend: roundMetric(minSpend, 2),
+      ctr_drop_factor: roundMetric(ctrDropFactor, 2),
+      cpc_rise_factor: roundMetric(cpcRiseFactor, 2),
+      cpm_rise_factor: roundMetric(cpmRiseFactor, 2),
+      ctr_threshold_pct: roundMetric(ctrThreshold, 2),
+      cpc_threshold: roundMetric(cpcThreshold, 2),
+      cpm_threshold: roundMetric(cpmThreshold, 2)
+    },
+    baselines: {
+      median_ctr_pct: roundMetric(ctrBaseline, 2),
+      median_cpc: roundMetric(cpcBaseline, 2),
+      median_cpm: roundMetric(cpmBaseline, 2)
+    },
+    summary: {
+      ads_scanned: normalized.length,
+      flagged_ads: flagged.length,
+      scanned_spend: roundMetric(scannedSpend, 2),
+      flagged_spend: roundMetric(flaggedSpend, 2),
+      spend_at_risk_estimate: roundMetric(spendAtRisk, 2)
+    },
+    rows: flagged
+  };
+}
+
 async function confirmHighRisk(message, yesFlag) {
   if (yesFlag) return true;
   if (!process.stdout.isTTY) return false;
@@ -828,6 +1002,147 @@ function registerMarketingCommands(program) {
         printInsightsSummary(summary);
 
         console.log(chalk.gray('Note: attribution is retroactive; re-pull daily for 7-28 days for stable numbers.'));
+        console.log('');
+      } catch (e) {
+        spinner.stop();
+        client.handleError(e, { scopes: ['ads_read'] });
+      }
+    });
+
+  marketing
+    .command('diagnose-poor-ads [adAccountId]')
+    .description('Detect likely underperforming ads from insights data (cost/risk focused)')
+    .option('--preset <preset>', 'Date preset: last_7d|last_30d|last_90d|today|yesterday', 'last_7d')
+    .option('--min-impressions <n>', 'Minimum impressions before CTR/CPM diagnostics', '1000')
+    .option('--min-clicks <n>', 'Minimum clicks before CPC diagnostics', '5')
+    .option('--min-spend <amount>', 'Minimum spend before diagnosis', '10')
+    .option('--ctr-drop-factor <n>', 'Flag when CTR <= median_ctr * factor', '0.6')
+    .option('--cpc-rise-factor <n>', 'Flag when CPC >= median_cpc * factor', '1.5')
+    .option('--cpm-rise-factor <n>', 'Flag when CPM >= median_cpm * factor', '1.4')
+    .option('--top <n>', 'Max flagged ads to show', '20')
+    .option('--json', 'Output as JSON')
+    .option('--table', 'Output as table')
+    .option('--verbose', 'Verbose request logging (no secrets)')
+    .action(async (adAccountId, options) => {
+      warnIfOldApiVersion();
+      const token = ensureMarketingToken();
+      const act = requireAct(adAccountId);
+      const client = new MetaAPIClient(token, 'facebook');
+
+      const preset = presetToDatePreset(options.preset);
+      const top = Math.max(1, parseIntegerOrFallback(options.top, 20) || 20);
+      const minImpressions = parsePositiveNumber(options.minImpressions, 1000);
+      const minClicks = parsePositiveNumber(options.minClicks, 5);
+      const minSpend = parsePositiveNumber(options.minSpend, 10);
+
+      const params = {
+        date_preset: preset,
+        level: 'ad',
+        fields: 'ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,impressions,clicks,ctr,cpc,cpm',
+        limit: 500
+      };
+
+      const spinner = ora('Submitting async diagnostics query...').start();
+      try {
+        let rows = [];
+        try {
+          const reportRunId = await startAsyncInsightsJob({
+            client,
+            act,
+            params,
+            opts: { verbose: Boolean(options.verbose), maxRetries: 5 }
+          });
+          spinner.text = `Polling diagnostics job ${reportRunId}...`;
+          await pollInsightsJob({
+            client,
+            reportRunId,
+            pollIntervalSec: 10,
+            timeoutSec: 600,
+            verbose: Boolean(options.verbose),
+            onProgress: ({ status, percent }) => {
+              const pct = percent !== undefined && percent !== null ? `${percent}%` : '?%';
+              spinner.text = `Polling diagnostics job ${reportRunId}: ${status || 'running'} (${pct})`;
+            }
+          });
+          spinner.text = 'Fetching diagnostics results...';
+          rows = await fetchAsyncInsightsResults({
+            client,
+            reportRunId,
+            opts: { verbose: Boolean(options.verbose), maxRetries: 5 }
+          });
+        } catch (jobErr) {
+          spinner.stop();
+          console.log(chalk.yellow('! Async diagnostics failed; falling back to sync insights.'));
+          console.log(chalk.gray(`  Reason: ${jobErr?.message || String(jobErr)}`));
+          console.log(chalk.gray('  Tip: reduce load or re-try later (Ads throttling is common).'));
+          console.log('');
+          spinner.start('Fetching sync insights for diagnostics...');
+          const res = await client.get(`/${act}/insights`, params, { verbose: Boolean(options.verbose), maxRetries: 5 });
+          rows = res?.data || [];
+        }
+
+        spinner.stop();
+
+        const diagnosis = diagnosePoorAds(rows, {
+          minImpressions,
+          minClicks,
+          minSpend,
+          ctrDropFactor: options.ctrDropFactor,
+          cpcRiseFactor: options.cpcRiseFactor,
+          cpmRiseFactor: options.cpmRiseFactor
+        });
+        const flaggedRows = diagnosis.rows.slice(0, top);
+
+        const payload = sanitizeForLog({
+          generated_at: new Date().toISOString(),
+          ad_account: act,
+          preset,
+          thresholds: diagnosis.thresholds,
+          baselines: diagnosis.baselines,
+          summary: diagnosis.summary,
+          top_limit: top,
+          rows: flaggedRows
+        });
+
+        if (options.json) {
+          console.log(JSON.stringify(payload, null, 2));
+          return;
+        }
+
+        if (!flaggedRows.length) {
+          console.log(chalk.green('OK No clearly poor ads found for the current thresholds.'));
+          console.log(chalk.gray('  Try wider lookback (e.g. --preset last_30d) or lower thresholds if needed.'));
+          console.log('');
+          return;
+        }
+
+        const tableRows = flaggedRows.map((r) => ({
+          ad_name: r.ad_name || '-',
+          ad_id: r.ad_id || '-',
+          spend: parseNumberOrZero(r.spend).toFixed(2),
+          impressions: String(r.impressions || 0),
+          clicks: String(r.clicks || 0),
+          ctr_pct: `${roundMetric(r.ctr, 2).toFixed(2)}%`,
+          cpc: roundMetric(r.cpc, 2).toFixed(2),
+          cpm: roundMetric(r.cpm, 2).toFixed(2),
+          score: String(r.score || 0),
+          reasons: (r.reason_labels || []).join('|'),
+          action: r.recommended_action
+        }));
+        const columns = ['ad_name', 'ad_id', 'spend', 'impressions', 'clicks', 'ctr_pct', 'cpc', 'cpm', 'score', 'reasons', 'action'];
+        if (options.table || !options.json) {
+          printTableOrJson({ rows: tableRows, columns, json: false });
+        }
+
+        console.log(chalk.bold('Poor Ad Diagnosis Summary:'));
+        console.log(chalk.cyan('  Ads scanned:'), String(diagnosis.summary.ads_scanned));
+        console.log(chalk.cyan('  Ads flagged:'), String(diagnosis.summary.flagged_ads));
+        console.log(chalk.cyan('  Scanned spend:'), chalk.green(diagnosis.summary.scanned_spend.toFixed(2)));
+        console.log(chalk.cyan('  Flagged spend:'), chalk.yellow(diagnosis.summary.flagged_spend.toFixed(2)));
+        console.log(chalk.cyan('  Spend at risk (estimate):'), chalk.red(diagnosis.summary.spend_at_risk_estimate.toFixed(2)));
+        console.log(chalk.cyan('  Median CTR baseline:'), `${diagnosis.baselines.median_ctr_pct.toFixed(2)}%`);
+        console.log(chalk.cyan('  Median CPC baseline:'), diagnosis.baselines.median_cpc.toFixed(2));
+        console.log(chalk.cyan('  Median CPM baseline:'), diagnosis.baselines.median_cpm.toFixed(2));
         console.log('');
       } catch (e) {
         spinner.stop();

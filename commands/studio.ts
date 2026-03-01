@@ -42,23 +42,21 @@ function requestJson(url) {
 function registerStudioCommand(program) {
   program
     .command('studio')
-    .description('Launch bundled Social Studio (ensure gateway is up and open UI)')
+    .description('Open external frontend or gateway status page')
     .option('--url <url>', 'Gateway base URL', 'http://127.0.0.1:1310')
-    .option('--frontend-url <url>', 'External Studio/frontend URL to open instead of bundled UI', process.env.SOCIAL_STUDIO_URL || '')
+    .option('--frontend-url <url>', 'External Studio/frontend URL to open', process.env.SOCIAL_STUDIO_URL || '')
     .option('--no-open', 'Do not open Studio page in browser')
     .option('--no-auto-start', 'Do not auto-start gateway when health is down')
     .action(async (opts) => {
       const baseUrl = parseBaseUrl(opts.url);
       const healthUrl = new URL('/api/health', baseUrl).toString();
       const statusUrl = new URL('/api/status?doctor=1', baseUrl).toString();
-      const studioUrl = new URL('/', baseUrl).toString();
       const frontendUrl = String(opts.frontendUrl || '').trim();
       const host = String(baseUrl.hostname || '127.0.0.1').trim();
       const fallbackPort = baseUrl.protocol === 'https:' ? 443 : 80;
       const port = Number(baseUrl.port || fallbackPort);
 
       let health = await requestJson(healthUrl);
-      let studio = await requestJson(studioUrl);
       let autoStarted = false;
 
       if ((!health || !health.data || !health.data.ok) && opts.autoStart !== false) {
@@ -67,15 +65,13 @@ function registerStudioCommand(program) {
         health = started.health && started.health.ok
           ? { status: 200, data: started.health.data || { ok: true } }
           : await requestJson(healthUrl);
-        studio = await requestJson(studioUrl);
       }
 
       const rows = [];
       if (health.status === 200 && health.data && health.data.ok) {
         rows.push(chalk.green(`Gateway reachable: ${baseUrl.toString().replace(/\/$/, '')}`));
         rows.push(chalk.gray(`Health endpoint: ${healthUrl}`));
-        rows.push(chalk.gray(`Bundled Studio UI: ${studioUrl}`));
-        rows.push(chalk.gray(`Studio status page: ${statusUrl}`));
+        rows.push(chalk.gray(`Status page: ${statusUrl}`));
         if (frontendUrl) rows.push(chalk.gray(`External frontend: ${frontendUrl}`));
         if (autoStarted) rows.push(chalk.green('Gateway auto-started for Studio flow.'));
       } else {
@@ -84,18 +80,12 @@ function registerStudioCommand(program) {
         rows.push(chalk.gray('For debugging: social logs --lines 120'));
       }
 
-      if (!frontendUrl && studio.status !== 200 && health.status === 200 && health.data && health.data.ok) {
-        rows.push('');
-        rows.push(chalk.yellow('Bundled Studio UI is unavailable from this gateway instance.'));
-        rows.push(chalk.gray('Falling back to API status page when opening browser.'));
-      }
-
       rows.push('');
       rows.push('Fast checks:');
       rows.push(`1. curl ${healthUrl}`);
       rows.push(`2. social status`);
       rows.push('3. social logs');
-      rows.push(`4. open ${frontendUrl || studioUrl}`);
+      rows.push(`4. open ${frontendUrl || statusUrl}`);
 
       console.log('');
       console.log(renderPanel({
@@ -107,7 +97,7 @@ function registerStudioCommand(program) {
       console.log('');
 
       if (opts.open !== false && health.status === 200 && health.data && health.data.ok) {
-        const openTarget = frontendUrl || (studio.status === 200 ? studioUrl : statusUrl);
+        const openTarget = frontendUrl || statusUrl;
         await openUrl(openTarget);
       }
     });

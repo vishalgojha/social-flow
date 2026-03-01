@@ -50,11 +50,7 @@ function mimeFor(filePath) {
 }
 
 function studioAssetRoots() {
-  return [
-    path.resolve(__dirname, '..', '..', 'assets', 'studio'),
-    path.resolve(process.cwd(), 'assets', 'studio'),
-    path.resolve(process.cwd(), 'dist-legacy', 'assets', 'studio')
-  ];
+  return [];
 }
 
 function resolveStudioAsset(routePath) {
@@ -3092,15 +3088,15 @@ class GatewayServer {
     }
 
     if (route === '/' || route === '/index.html') {
-      sendJson(res, 503, {
+      sendJson(res, 410, {
         ok: false,
-        error: 'Bundled Studio assets are missing. Run `npm run build:legacy-ts` and retry.'
+        error: 'Bundled Studio frontend is disabled. Use /api/status?doctor=1 or connect an external frontend.'
       });
       return;
     }
     sendJson(res, 404, {
       ok: false,
-      error: 'Route not found. Use / (Studio) or /api/* endpoints.'
+      error: 'Route not found. Use /api/* endpoints.'
     });
   }
 

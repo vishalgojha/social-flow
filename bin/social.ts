@@ -112,7 +112,7 @@ function showBanner() {
     rows: [
       `${mint('Profile:')} ${chalk.white(activeProfile)}   ${mint('Version:')} ${chalk.white(packageJson.version)}`,
       `${mint('Default API:')} ${chalk.white(defaultApi)}   ${mint('Mode:')} ${chalk.white('terminal-native')}`,
-      chalk.gray('Meta APIs + ops workflows with guided approvals and safer defaults.')
+      chalk.gray('Meta Operations Control Plane for Facebook, Instagram, WhatsApp, and Ads Manager.')
     ],
     minWidth: 64,
     borderColor: (value) => mint(value)
@@ -130,7 +130,7 @@ if (shouldShowBanner && !process.argv.includes('--no-banner')) {
 
 program
   .name('social')
-  .description('Social Flow API CLI for Meta APIs (Facebook, Instagram, WhatsApp).')
+  .description('Meta Operations Control Plane with CLI, chat, gateway APIs, and SDK integration.')
   .option('--profile <name>', 'Use a profile (multi-account). Does not persist; use `social accounts switch` to persist.')
   .option('--lang <code>', 'UI language (en|hi). You can also set SOCIAL_LANG.', process.env.SOCIAL_LANG || 'en')
   .option('--no-banner', 'Disable the startup banner')
@@ -235,6 +235,7 @@ program.on('--help', () => {
   console.log(`  ${cmd('agent "fix whatsapp webhook for clientA"')}  ` + chalk.gray('# Plan first, then execute with confirmation'));
   console.log(`  ${cmd('marketing accounts')}      ` + chalk.gray('# List ad accounts'));
   console.log(`  ${cmd('marketing portfolio --preset last_7d --target-daily 250')}  ` + chalk.gray('# Agency portfolio pacing + risk snapshot across profiles'));
+  console.log(`  ${cmd('marketing diagnose-poor-ads --preset last_7d --top 15')}  ` + chalk.gray('# Flag likely poor ads and estimate spend at risk'));
   console.log(`  ${cmd('accounts add clientA')}    ` + chalk.gray('# Create a profile'));
   console.log(`  ${cmd('--profile clientA query me')}  ` + chalk.gray('# Use a profile (one-off)'));
   console.log(`  ${cmd('batch run jobs.json')}     ` + chalk.gray('# Run a batch of tool jobs'));
@@ -242,14 +243,14 @@ program.on('--help', () => {
   console.log(`  ${cmd('chat')}                    ` + chalk.gray('# Conversational multi-turn AI assistant'));
   console.log(`  ${cmd('tui')}                     ` + chalk.gray('# Agentic terminal dashboard (chat + approvals + replay)'));
   console.log(`  ${cmd('hatch')}                   ` + chalk.gray('# Alias of tui (terminal agent chat)'));
-  console.log(`  ${cmd('gateway')}                 ` + chalk.gray('# Social API Gateway + bundled Studio UI'));
+  console.log(`  ${cmd('gateway')}                 ` + chalk.gray('# Social API/WebSocket Gateway'));
   console.log(`  ${cmd('setup')}                   ` + chalk.gray('# Guided first-run setup + optional gateway start'));
   console.log(`  ${cmd('start')}                   ` + chalk.gray('# Start gateway in background with readiness checks'));
   console.log(`  ${cmd('stop')}                    ` + chalk.gray('# Stop background gateway'));
   console.log(`  ${cmd('status')}                  ` + chalk.gray('# Runtime status + setup readiness'));
   console.log(`  ${cmd('logs --lines 120')}        ` + chalk.gray('# Show gateway logs'));
-  console.log(`  ${cmd('studio')}                  ` + chalk.gray('# Launch Studio flow (ensure gateway + open bundled UI)'));
-  console.log(`  ${cmd('studio --url https://api.example.com --frontend-url https://studio.example.com')}  ` + chalk.gray('# Open external frontend with remote gateway'));
+  console.log(`  ${cmd('studio')}                  ` + chalk.gray('# Open gateway status page (browser)'));
+  console.log(`  ${cmd('studio --url https://api.example.com --frontend-url https://studio.example.com')}  ` + chalk.gray('# Open external frontend against remote gateway'));
   console.log(`  ${cmd('guide')}                   ` + chalk.gray('# Universal step-by-step guidance sequence'));
   console.log(`  ${cmd('start-here')}              ` + chalk.gray('# Unified setup: AI config + tokens + health verification'));
   console.log(`  ${cmd('industry detect')}         ` + chalk.gray('# Hybrid industry detection + confidence'));
