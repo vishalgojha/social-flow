@@ -1,5 +1,11 @@
 # Conversational Chat Agent (`social chat`)
 
+## Status (March 1, 2026)
+
+`social chat` is now a legacy alias that routes to Hatch UI (`social hatch`) for main interactive use.
+
+Use `docs/HATCH_UI.md` as the primary conversational runtime guide.
+
 ## Overview
 
 `social chat` adds a persistent multi-turn conversation loop to `social-cli`.

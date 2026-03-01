@@ -646,11 +646,15 @@ function HatchRuntime(): JSX.Element {
         unresolved: memory.unresolved,
         turns: chatTurns.slice(-80)
       };
-      void saveHatchMemory(payload);
+      void saveHatchMemory(payload, {
+        profileId: configState.data?.activeProfile,
+        sessionId: memory.sessionId
+      });
     }, 280);
     return () => clearTimeout(timeout);
   }, [
     chatTurns,
+    configState.data?.activeProfile,
     memory.lastIntents,
     memory.loaded,
     memory.profileName,

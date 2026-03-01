@@ -117,6 +117,7 @@ social marketing portfolio --targets-file ./agency-targets.json --include-missin
 - Example commands: `EXAMPLES.md`
 - Domain skills: `skills/README.md`
 - AI interface details: `docs/AI_INTERFACE.md`
+- Hatch conversational UI: `docs/HATCH_UI.md`
 - Chat agent details: `docs/CHAT_AGENT.md`
 - Gateway API details: `docs/GATEWAY_UI.md`
 - TypeScript SDK usage: `sdk/README.md`
